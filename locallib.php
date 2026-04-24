@@ -2173,6 +2173,7 @@ function aidiscussion_build_grading_prompt(
         'Limit each area feedback to 25 words.',
         'Limit each criterion feedback to 15 words.',
         'Return at most 2 integrity flags.',
+        'Use an empty integrityflags array unless there is a clear, specific concern.',
         'Teacher prompt: ' . aidiscussion_limit_text($teacherprompt, 2200),
     ];
 
@@ -2514,7 +2515,7 @@ function aidiscussion_get_grading_generation_options(stdClass $aidiscussion): ar
     }
 
     $config = provider_registry::get_plugin_provider_config($providercomponent);
-    $options['maxtokens'] = max(512, (int)($config['maxtokens'] ?? 0));
+    $options['maxtokens'] = max(1024, (int)($config['maxtokens'] ?? 0));
 
     return $options;
 }
@@ -2541,19 +2542,41 @@ function aidiscussion_build_provider_grade_record(
     $posts = $posts ?? aidiscussion_load_posts($aidiscussion->id);
     $providercomponent = aidiscussion_get_grade_provider_component($aidiscussion);
     $prompt = aidiscussion_build_grading_prompt($aidiscussion, $posts, $userid, $metrics);
+    $generationoptions = aidiscussion_get_grading_generation_options($aidiscussion);
     $result = provider_client::generate_text(
         $providercomponent,
         $contextid,
         $actoruserid,
         $prompt,
-        aidiscussion_get_grading_generation_options($aidiscussion)
+        $generationoptions
     );
 
     if (empty($result->success) || trim((string)$result->generatedcontent) === '') {
         throw new \UnexpectedValueException('The grading provider returned an empty grading response.');
     }
 
-    $gradingdata = aidiscussion_parse_provider_grading_response((string)$result->generatedcontent);
+    try {
+        $gradingdata = aidiscussion_parse_provider_grading_response((string)$result->generatedcontent);
+    } catch (\Throwable $e) {
+        $repairprompt = $prompt . "\n\n" .
+            'IMPORTANT: Your previous reply was invalid or truncated. ' .
+            'Return one complete JSON object only. ' .
+            'Keep feedback extremely short and use an empty integrityflags array unless there is a clear concern.';
+        $result = provider_client::generate_text(
+            $providercomponent,
+            $contextid,
+            $actoruserid,
+            $repairprompt,
+            $generationoptions
+        );
+
+        if (empty($result->success) || trim((string)$result->generatedcontent) === '') {
+            throw new \UnexpectedValueException('The grading provider returned an empty grading response.');
+        }
+
+        $gradingdata = aidiscussion_parse_provider_grading_response((string)$result->generatedcontent);
+    }
+
     $payload = aidiscussion_build_provider_grade_payload($aidiscussion, $metrics, $gradingdata);
 
     return (object) [
