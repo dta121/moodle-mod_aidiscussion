@@ -14,11 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+/**
+ * Adhoc task for AI reply processing.
+ *
+ * @package   mod_aidiscussion
+ * @copyright 2026
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 namespace mod_aidiscussion\task;
 
 use mod_aidiscussion\local\ai\provider_client;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * Adhoc task for AI reply processing.

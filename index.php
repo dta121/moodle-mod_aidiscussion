@@ -60,4 +60,3 @@ foreach ($instances as $instance) {
 
 echo html_writer::table($table);
 echo $OUTPUT->footer();
-

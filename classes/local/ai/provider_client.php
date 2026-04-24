@@ -22,8 +22,6 @@ use core_ai\aiactions\responses\response_base;
 use core_ai\manager;
 use core_ai\provider;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Runs Moodle AI requests against a specific provider plugin.
  *

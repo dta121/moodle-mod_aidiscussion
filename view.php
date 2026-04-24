@@ -83,7 +83,12 @@ $rulestable->head = [get_string('setting'), get_string('value')];
 $rulestable->data = [
     [get_string('postbeforeview', 'mod_aidiscussion'), aidiscussion_bool_text($aidiscussion->postbeforeview)],
     [get_string('allowpeerreplies', 'mod_aidiscussion'), aidiscussion_bool_text($aidiscussion->allowpeerreplies)],
-    [get_string('requiredpeerreplies', 'mod_aidiscussion'), !empty($aidiscussion->allowpeerreplies) ? (string)$aidiscussion->requiredpeerreplies : get_string('notapplicable', 'mod_aidiscussion')],
+    [
+        get_string('requiredpeerreplies', 'mod_aidiscussion'),
+        !empty($aidiscussion->allowpeerreplies)
+            ? (string)$aidiscussion->requiredpeerreplies
+            : get_string('notapplicable', 'mod_aidiscussion'),
+    ],
     [get_string('aienabled', 'mod_aidiscussion'), aidiscussion_bool_text($aidiscussion->aienabled)],
 ];
 echo $OUTPUT->heading(get_string('discussionoverview', 'mod_aidiscussion'), 3);
@@ -105,10 +110,19 @@ if (!$canmanage) {
         ($flags ? implode('; ', $flags) : get_string('none')) :
         get_string('notapplicable', 'mod_aidiscussion');
     $progresstable->data = [
-        [get_string('initialresponsecomponent', 'mod_aidiscussion'), $progress->hasinitialpost ? get_string('yes') : get_string('no')],
+        [
+            get_string('initialresponsecomponent', 'mod_aidiscussion'),
+            $progress->hasinitialpost ? get_string('yes') : get_string('no'),
+        ],
         [get_string('aiinteractioncomponent', 'mod_aidiscussion'), (string)$progress->substantiveaireplycount],
-        [get_string('peerreplycomponent', 'mod_aidiscussion'), $progress->substantivepeerreplycount . ' / ' . $progress->requiredpeerreplies],
-        [get_string('currentgrade', 'mod_aidiscussion'), format_float($progress->finalscore, 2) . ' / ' . format_float($progress->grademax, 2)],
+        [
+            get_string('peerreplycomponent', 'mod_aidiscussion'),
+            $progress->substantivepeerreplycount . ' / ' . $progress->requiredpeerreplies,
+        ],
+        [
+            get_string('currentgrade', 'mod_aidiscussion'),
+            format_float($progress->finalscore, 2) . ' / ' . format_float($progress->grademax, 2),
+        ],
         [get_string('integrityflags', 'mod_aidiscussion'), $flagtext],
     ];
     echo $OUTPUT->heading(get_string('yourprogress', 'mod_aidiscussion'), 3);
@@ -125,13 +139,22 @@ if ($canmanage) {
     $summary->head = [get_string('setting'), get_string('value')];
     $summary->data = [
         [get_string('aidisplayname', 'mod_aidiscussion'), aidiscussion_get_ai_display_name($aidiscussion)],
-        [get_string('replyprovider', 'mod_aidiscussion'), provider_registry::get_provider_name((string)$aidiscussion->replyprovider)],
-        [get_string('gradeprovider', 'mod_aidiscussion'), provider_registry::get_provider_name((string)$aidiscussion->gradeprovider)],
+        [
+            get_string('replyprovider', 'mod_aidiscussion'),
+            provider_registry::get_provider_name((string)$aidiscussion->replyprovider),
+        ],
+        [
+            get_string('gradeprovider', 'mod_aidiscussion'),
+            provider_registry::get_provider_name((string)$aidiscussion->gradeprovider),
+        ],
         [get_string('publicaireplies', 'mod_aidiscussion'), aidiscussion_bool_text($aidiscussion->publicaireplies)],
         [get_string('replytopeerreplies', 'mod_aidiscussion'), aidiscussion_bool_text($aidiscussion->replytopeerreplies)],
         [get_string('minsubstantivewords', 'mod_aidiscussion'), (string)$aidiscussion->minsubstantivewords],
         [get_string('maxairepliesperstudent', 'mod_aidiscussion'), (string)$aidiscussion->maxairepliesperstudent],
-        [get_string('aireplydelayminutes', 'mod_aidiscussion'), get_string('delayminutesvalue', 'mod_aidiscussion', (int)$aidiscussion->aireplydelayminutes)],
+        [
+            get_string('aireplydelayminutes', 'mod_aidiscussion'),
+            get_string('delayminutesvalue', 'mod_aidiscussion', (int)$aidiscussion->aireplydelayminutes),
+        ],
     ];
     echo $OUTPUT->heading(get_string('configuration', 'mod_aidiscussion'), 3);
     echo html_writer::table($summary);

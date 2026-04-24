@@ -22,8 +22,6 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Upgrade hook.
  *
@@ -86,7 +84,16 @@ function xmldb_aidiscussion_upgrade(int $oldversion): bool {
         }
 
         $gradestable = new xmldb_table('aidiscussion_grades');
-        $gradeprovidercomponent = new xmldb_field('providercomponent', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'integrityjson');
+        $gradeprovidercomponent = new xmldb_field(
+            'providercomponent',
+            XMLDB_TYPE_CHAR,
+            '100',
+            null,
+            null,
+            null,
+            null,
+            'integrityjson'
+        );
         if (!$dbman->field_exists($gradestable, $gradeprovidercomponent)) {
             $dbman->add_field($gradestable, $gradeprovidercomponent);
         }

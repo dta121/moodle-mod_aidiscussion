@@ -14,9 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-namespace mod_aidiscussion\task;
+/**
+ * Adhoc task for grade recalculation.
+ *
+ * @package   mod_aidiscussion
+ * @copyright 2026
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
-defined('MOODLE_INTERNAL') || die();
+namespace mod_aidiscussion\task;
 
 /**
  * Adhoc task for grade recalculation.

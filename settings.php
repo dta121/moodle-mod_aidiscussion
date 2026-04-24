@@ -34,11 +34,11 @@ if ($hassiteconfig) {
 
     $provideroptions = provider_registry::get_generate_text_options();
 
-    $addpageintro = static function(admin_settingpage $page, string $settingid, string $description): void {
+    $addpageintro = static function (admin_settingpage $page, string $settingid, string $description): void {
         $page->add(new admin_setting_heading($settingid, '', $description));
     };
 
-    $addpluginprovidersettings = static function(admin_settingpage $page, string $providerid, array $definition): void {
+    $addpluginprovidersettings = static function (admin_settingpage $page, string $providerid, array $definition): void {
         $page->add(new admin_setting_configcheckbox(
             'aidiscussion/' . $providerid . '_enabled',
             get_string('pluginproviderenabled', 'mod_aidiscussion'),

@@ -16,8 +16,6 @@
 
 namespace mod_aidiscussion\local\ai;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Catalog of plugin-managed provider presets.
  *

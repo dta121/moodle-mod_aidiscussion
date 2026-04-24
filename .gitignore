@@ -5,3 +5,4 @@ Thumbs.db
 *.tar.gz
 .idea/
 .vscode/
+.tools/

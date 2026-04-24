@@ -14,12 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+/**
+ * AI provider registry helpers for mod_aidiscussion.
+ *
+ * @package   mod_aidiscussion
+ * @copyright 2026
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 namespace mod_aidiscussion\local\ai;
 
 use core_ai\aiactions\generate_text;
 use core_ai\manager;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * Reads configured Moodle AI provider instances for this activity.

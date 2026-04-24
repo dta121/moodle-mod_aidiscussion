@@ -22,8 +22,6 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
-
 use core_ai\manager as core_ai_manager;
 use mod_aidiscussion\local\ai\provider_client;
 use mod_aidiscussion\task\process_ai_reply;
@@ -238,25 +236,61 @@ function aidiscussion_get_default_rubric_templates(): array {
         'initial' => [
             'instructions' => 'Evaluate whether the learner addresses the teacher prompt with a clear, developed response.',
             'criteria' => [
-                ['shortname' => 'Addresses the prompt', 'maxscore' => 4.0, 'description' => 'Directly answers the teacher prompt and stays on topic.'],
-                ['shortname' => 'Support and reasoning', 'maxscore' => 3.0, 'description' => 'Uses reasons, examples, or evidence to support the response.'],
-                ['shortname' => 'Clarity and completeness', 'maxscore' => 3.0, 'description' => 'Communicates clearly and develops the idea enough for discussion.'],
+                [
+                    'shortname' => 'Addresses the prompt',
+                    'maxscore' => 4.0,
+                    'description' => 'Directly answers the teacher prompt and stays on topic.',
+                ],
+                [
+                    'shortname' => 'Support and reasoning',
+                    'maxscore' => 3.0,
+                    'description' => 'Uses reasons, examples, or evidence to support the response.',
+                ],
+                [
+                    'shortname' => 'Clarity and completeness',
+                    'maxscore' => 3.0,
+                    'description' => 'Communicates clearly and develops the idea enough for discussion.',
+                ],
             ],
         ],
         'ai' => [
             'instructions' => 'Evaluate how well the learner engages with the AI follow-up and extends their thinking.',
             'criteria' => [
-                ['shortname' => 'Responds substantively', 'maxscore' => 4.0, 'description' => 'Answers the AI follow-up with more than a brief acknowledgement.'],
-                ['shortname' => 'Extends thinking', 'maxscore' => 3.0, 'description' => 'Adds reflection, clarification, or a new example.'],
-                ['shortname' => 'Uses feedback productively', 'maxscore' => 3.0, 'description' => 'Builds on the AI response in a meaningful way.'],
+                [
+                    'shortname' => 'Responds substantively',
+                    'maxscore' => 4.0,
+                    'description' => 'Answers the AI follow-up with more than a brief acknowledgement.',
+                ],
+                [
+                    'shortname' => 'Extends thinking',
+                    'maxscore' => 3.0,
+                    'description' => 'Adds reflection, clarification, or a new example.',
+                ],
+                [
+                    'shortname' => 'Uses feedback productively',
+                    'maxscore' => 3.0,
+                    'description' => 'Builds on the AI response in a meaningful way.',
+                ],
             ],
         ],
         'peer' => [
             'instructions' => 'Evaluate whether the learner contributes constructively to peer discussion.',
             'criteria' => [
-                ['shortname' => 'Engages a peer directly', 'maxscore' => 4.0, 'description' => 'Responds to a classmate\'s specific idea or question.'],
-                ['shortname' => 'Adds value to the discussion', 'maxscore' => 3.0, 'description' => 'Moves the discussion forward with evidence, a question, or a new perspective.'],
-                ['shortname' => 'Professional discussion style', 'maxscore' => 3.0, 'description' => 'Uses respectful, constructive language.'],
+                [
+                    'shortname' => 'Engages a peer directly',
+                    'maxscore' => 4.0,
+                    'description' => 'Responds to a classmate\'s specific idea or question.',
+                ],
+                [
+                    'shortname' => 'Adds value to the discussion',
+                    'maxscore' => 3.0,
+                    'description' => 'Moves the discussion forward with evidence, a question, or a new perspective.',
+                ],
+                [
+                    'shortname' => 'Professional discussion style',
+                    'maxscore' => 3.0,
+                    'description' => 'Uses respectful, constructive language.',
+                ],
             ],
         ],
     ];
@@ -759,7 +793,11 @@ function aidiscussion_user_requires_ai_policy(stdClass $aidiscussion, int $useri
  */
 function aidiscussion_get_post_author_name(stdClass $post): string {
     if ($post->posttype === 'ai') {
-        return trim((string)($post->aidisplayname ?? '')) !== '' ? (string)$post->aidisplayname : get_string('aifacilitator', 'mod_aidiscussion');
+        if (trim((string)($post->aidisplayname ?? '')) !== '') {
+            return (string)$post->aidisplayname;
+        }
+
+        return get_string('aifacilitator', 'mod_aidiscussion');
     }
 
     if (!empty($post->userid)) {
@@ -964,8 +1002,10 @@ function aidiscussion_get_posting_permission(
         return ['allowed' => true, 'reason' => ''];
     }
 
-    if (!$canmanage && $parent->visibility === 'private' && (int)$parent->threadownerid !== $userid &&
-            (int)$parent->userid !== $userid) {
+    if (
+        !$canmanage && $parent->visibility === 'private' && (int)$parent->threadownerid !== $userid &&
+            (int)$parent->userid !== $userid
+    ) {
         return [
             'allowed' => false,
             'reason' => get_string('privatebranchrestricted', 'mod_aidiscussion'),
@@ -1126,8 +1166,10 @@ function aidiscussion_should_queue_ai_reply(stdClass $aidiscussion, stdClass $po
         return false;
     }
 
-    if (aidiscussion_count_reply_jobs_for_user($aidiscussion->id, (int)$post->userid) >=
-            max(1, (int)$aidiscussion->maxairepliesperstudent)) {
+    if (
+        aidiscussion_count_reply_jobs_for_user($aidiscussion->id, (int)$post->userid) >=
+            max(1, (int)$aidiscussion->maxairepliesperstudent)
+    ) {
         return false;
     }
 
@@ -1455,7 +1497,8 @@ function aidiscussion_build_ai_reply_prompt(stdClass $aidiscussion, array $posts
     $lines[] = 'Teacher prompt: ' . aidiscussion_limit_text($teacherprompt, 2000);
     if ($teacherexample !== '') {
         $lines[] = 'Teacher exemplar response: ' . aidiscussion_limit_text($teacherexample, 2200);
-        $lines[] = 'Use the teacher exemplar as guidance for depth, framing, and preferred reasoning. Do not copy it verbatim or mention that it was provided.';
+        $lines[] = 'Use the teacher exemplar as guidance for depth, framing, and preferred reasoning.';
+        $lines[] = 'Do not copy it verbatim or mention that it was provided.';
     }
     $lines[] = 'Conversation history:';
     $lines[] = implode("\n", $historylines);
@@ -1566,10 +1609,10 @@ function aidiscussion_calculate_user_metrics(stdClass $aidiscussion, int $userid
         }
     }
 
-    $substantivepeercount = count(array_filter($peerreplies, static function($post) {
+    $substantivepeercount = count(array_filter($peerreplies, static function ($post) {
         return !empty($post->issubstantive);
     }));
-    $substantiveaicount = count(array_filter($aireplies, static function($post) {
+    $substantiveaicount = count(array_filter($aireplies, static function ($post) {
         return !empty($post->issubstantive);
     }));
 
@@ -1763,11 +1806,11 @@ function aidiscussion_parse_response_tester_entries(string $text): array {
     }
 
     $entries = preg_split("/\n\s*\n+/u", $text);
-    $entries = array_map(static function(string $entry): string {
+    $entries = array_map(static function (string $entry): string {
         return trim($entry);
     }, $entries);
 
-    return array_values(array_filter($entries, static function(string $entry): bool {
+    return array_values(array_filter($entries, static function (string $entry): bool {
         return $entry !== '';
     }));
 }
@@ -1809,7 +1852,9 @@ function aidiscussion_build_response_tester_post(
         'content' => $content,
         'contentformat' => FORMAT_PLAIN,
         'wordcount' => $wordcount,
-        'issubstantive' => $authorrole === 'student' ? (int)aidiscussion_is_substantive_post($aidiscussion, $content, $wordcount) : 1,
+        'issubstantive' => $authorrole === 'student'
+            ? (int)aidiscussion_is_substantive_post($aidiscussion, $content, $wordcount)
+            : 1,
         'providercomponent' => '',
         'modelname' => '',
         'pseudonym' => null,
@@ -1946,7 +1991,7 @@ function aidiscussion_build_grade_payload(stdClass $aidiscussion, stdClass $metr
             'count' => (int)$metrics->substantivepeerreplycount,
             'required' => (int)$metrics->requiredpeerreplies,
         ]),
-        'areas' => array_map(static function(array $area): array {
+        'areas' => array_map(static function (array $area): array {
             return [
                 'label' => $area['label'],
                 'feedback' => $area['feedback'],
@@ -2008,14 +2053,14 @@ function aidiscussion_build_response_tester_preview(stdClass $aidiscussion, arra
         $samples['peerresponses'] :
         aidiscussion_parse_response_tester_entries((string)($samples['peerresponses'] ?? ''));
 
-    $airesamples = array_values(array_filter(array_map(static function($response): string {
+    $airesamples = array_values(array_filter(array_map(static function ($response): string {
         return trim((string)$response);
-    }, $airesamples), static function(string $response): bool {
+    }, $airesamples), static function (string $response): bool {
         return $response !== '';
     }));
-    $peersamples = array_values(array_filter(array_map(static function($response): string {
+    $peersamples = array_values(array_filter(array_map(static function ($response): string {
         return trim((string)$response);
-    }, $peersamples), static function(string $response): bool {
+    }, $peersamples), static function (string $response): bool {
         return $response !== '';
     }));
 
@@ -2315,11 +2360,17 @@ function aidiscussion_render_post_node(
     ];
 
     if ($post->visibility === 'private') {
-        $headerbits[] = html_writer::span(get_string('privatebranch', 'mod_aidiscussion'), 'badge rounded-pill bg-secondary ms-2');
+        $headerbits[] = html_writer::span(
+            get_string('privatebranch', 'mod_aidiscussion'),
+            'badge rounded-pill bg-secondary ms-2'
+        );
     }
 
     if (isset($pendingjobs[$post->id])) {
-        $headerbits[] = html_writer::span(get_string('aireplypending', 'mod_aidiscussion'), 'badge rounded-pill bg-info text-dark ms-2');
+        $headerbits[] = html_writer::span(
+            get_string('aireplypending', 'mod_aidiscussion'),
+            'badge rounded-pill bg-info text-dark ms-2'
+        );
     }
 
     $body = html_writer::div(
