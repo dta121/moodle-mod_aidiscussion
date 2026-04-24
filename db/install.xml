@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="mod/aidiscussion/db" VERSION="2026042401" COMMENT="XMLDB file for mod_aidiscussion"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+    <TABLES>
+        <TABLE NAME="aidiscussion" COMMENT="Configuration for each AI discussion activity instance">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="course" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="intro" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="introformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="prompt" TYPE="text" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="promptformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="teacherexample" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="teacherexampleformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="postbeforeview" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="requireinitialpost" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="allowpeerreplies" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="replytopeerreplies" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="publicaireplies" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="allowprivateai" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="aienabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="aidisplayname" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="AI facilitator" SEQUENCE="false"/>
+                <FIELD NAME="replyprovider" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="gradeprovider" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="showrubricbeforeposting" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="pseudonymiseusers" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="integrityflagsenabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="minsubstantivewords" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="20" SEQUENCE="false"/>
+                <FIELD NAME="maxairepliesperstudent" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="3" SEQUENCE="false"/>
+                <FIELD NAME="aireplydelayminutes" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="requiredpeerreplies" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="2" SEQUENCE="false"/>
+                <FIELD NAME="grade" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="100" SEQUENCE="false"/>
+                <FIELD NAME="initialweight" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="40.00000" SEQUENCE="false"/>
+                <FIELD NAME="aiweight" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="35.00000" SEQUENCE="false"/>
+                <FIELD NAME="peerweight" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="25.00000" SEQUENCE="false"/>
+                <FIELD NAME="responsetone" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="Professional, warm, and engaging" SEQUENCE="false"/>
+                <FIELD NAME="responseinstructions" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="gradinginstructions" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="course" TYPE="foreign" FIELDS="course" REFTABLE="course" REFFIELDS="id"/>
+            </KEYS>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_posts" COMMENT="Posts authored by students, teachers, and AI">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="authorrole" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="student" SEQUENCE="false"/>
+                <FIELD NAME="parentid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="visibility" TYPE="char" LENGTH="10" NOTNULL="true" DEFAULT="public" SEQUENCE="false"/>
+                <FIELD NAME="posttype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="student" SEQUENCE="false"/>
+                <FIELD NAME="content" TYPE="text" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="contentformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+                <FIELD NAME="wordcount" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="issubstantive" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="providercomponent" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="modelname" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="pseudonym" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="contenthash" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+                <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-userid" UNIQUE="false" FIELDS="aidiscussionid, userid"/>
+                <INDEX NAME="aidiscussionid-parentid" UNIQUE="false" FIELDS="aidiscussionid, parentid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_jobs" COMMENT="Tracks queued and completed AI and grading work">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="postid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="jobtype" TYPE="char" LENGTH="30" NOTNULL="true" DEFAULT="reply" SEQUENCE="false"/>
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="queued" SEQUENCE="false"/>
+                <FIELD NAME="attempts" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="lastmessage" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="runnerprovider" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timestarted" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecompleted" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-status" UNIQUE="false" FIELDS="aidiscussionid, status"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_grades" COMMENT="Computed grades, rubric evidence, and integrity flags per learner">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="initialscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="aiscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="peerscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="finalscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="criterionjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="feedbackjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="integrityjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="providercomponent" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="modelname" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="timegraded" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+                <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-userid" UNIQUE="true" FIELDS="aidiscussionid, userid"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_rubrics" COMMENT="Rubric containers for initial, ai, and peer grading areas">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="rubricarea" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="initial" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="instructions" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="maxscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-rubricarea" UNIQUE="true" FIELDS="aidiscussionid, rubricarea"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_criteria" COMMENT="Criterion rows attached to each custom rubric">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="rubricid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="shortname" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="maxscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="rubricid" TYPE="foreign" FIELDS="rubricid" REFTABLE="aidiscussion_rubrics" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="rubricid-sortorder" UNIQUE="false" FIELDS="rubricid, sortorder"/>
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>
