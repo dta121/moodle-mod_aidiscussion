@@ -37,6 +37,7 @@ class provider_client {
      * @param int $contextid
      * @param int $userid
      * @param string $prompttext
+     * @param array $options
      * @return \stdClass
      */
     public static function generate_text(
@@ -44,9 +45,10 @@ class provider_client {
         int $contextid,
         int $userid,
         string $prompttext,
+        array $options = [],
     ): \stdClass {
         if (provider_registry::is_plugin_provider($providercomponent)) {
-            return self::generate_text_with_plugin_provider($providercomponent, $prompttext);
+            return self::generate_text_with_plugin_provider($providercomponent, $prompttext, $options);
         }
 
         return self::generate_text_with_core_provider($providercomponent, $contextid, $userid, $prompttext);
@@ -109,9 +111,14 @@ class provider_client {
      *
      * @param string $providerid
      * @param string $prompttext
+     * @param array $options
      * @return \stdClass
      */
-    private static function generate_text_with_plugin_provider(string $providerid, string $prompttext): \stdClass {
+    private static function generate_text_with_plugin_provider(
+        string $providerid,
+        string $prompttext,
+        array $options = [],
+    ): \stdClass {
         $config = provider_registry::get_plugin_provider_config($providerid);
 
         if (empty($config['enabled'])) {
@@ -123,8 +130,8 @@ class provider_client {
         }
 
         $response = match ($config['transport']) {
-            'anthropic' => self::generate_text_anthropic($config, $prompttext),
-            default => self::generate_text_openai_compatible($config, $prompttext),
+            'anthropic' => self::generate_text_anthropic($config, $prompttext, $options),
+            default => self::generate_text_openai_compatible($config, $prompttext, $options),
         };
 
         return (object) [
@@ -143,14 +150,26 @@ class provider_client {
      *
      * @param array $config
      * @param string $prompttext
+     * @param array $options
      * @return array
      */
-    private static function generate_text_openai_compatible(array $config, string $prompttext): array {
+    private static function generate_text_openai_compatible(
+        array $config,
+        string $prompttext,
+        array $options = [],
+    ): array {
         global $CFG;
 
         $headers = [
             'Content-Type: application/json',
         ];
+
+        $temperature = array_key_exists('temperature', $options) ?
+            max(0.0, min(2.0, (float)$options['temperature'])) :
+            (float)$config['temperature'];
+        $maxtokens = array_key_exists('maxtokens', $options) ?
+            max(1, (int)$options['maxtokens']) :
+            (int)$config['maxtokens'];
 
         $apikey = trim((string)$config['apikey']);
         if ($apikey !== '') {
@@ -172,8 +191,8 @@ class provider_client {
                     'content' => $prompttext,
                 ],
             ],
-            'temperature' => (float)$config['temperature'],
-            'max_tokens' => (int)$config['maxtokens'],
+            'temperature' => $temperature,
+            'max_tokens' => $maxtokens,
             'stream' => false,
         ];
 
@@ -193,9 +212,21 @@ class provider_client {
      *
      * @param array $config
      * @param string $prompttext
+     * @param array $options
      * @return array
      */
-    private static function generate_text_anthropic(array $config, string $prompttext): array {
+    private static function generate_text_anthropic(
+        array $config,
+        string $prompttext,
+        array $options = [],
+    ): array {
+        $temperature = array_key_exists('temperature', $options) ?
+            max(0.0, min(1.0, (float)$options['temperature'])) :
+            max(0.0, min(1.0, (float)$config['temperature']));
+        $maxtokens = array_key_exists('maxtokens', $options) ?
+            max(1, (int)$options['maxtokens']) :
+            (int)$config['maxtokens'];
+
         $headers = [
             'Content-Type: application/json',
             'x-api-key: ' . trim((string)$config['apikey']),
@@ -204,8 +235,8 @@ class provider_client {
 
         $payload = [
             'model' => $config['model'],
-            'max_tokens' => (int)$config['maxtokens'],
-            'temperature' => max(0.0, min(1.0, (float)$config['temperature'])),
+            'max_tokens' => $maxtokens,
+            'temperature' => $temperature,
             'messages' => [
                 [
                     'role' => 'user',

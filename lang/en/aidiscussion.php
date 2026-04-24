@@ -34,6 +34,7 @@ $string['aidiscussion:view'] = 'View AI discussion';
 $string['aidisplayname'] = 'AI display name';
 $string['aienabled'] = 'Enable AI replies and AI grading';
 $string['aifacilitator'] = 'AI facilitator';
+$string['aigradingfeedbacksummary'] = 'AI-assisted score: {$a->score} / {$a->grademax}.';
 $string['aiinteractioncomponent'] = 'AI interaction';
 $string['aipolicyaccepted'] = 'AI policy accepted. You can now post in this activity.';
 $string['aipolicyrequiredtopost'] = 'You must accept the site AI usage policy before your posts can be sent to {$a}.';

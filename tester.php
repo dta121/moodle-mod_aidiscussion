@@ -59,12 +59,22 @@ $mform->set_data([
 ]);
 
 $preview = null;
+$previewerror = '';
 if ($data = $mform->get_data()) {
-    $preview = aidiscussion_build_response_tester_preview($aidiscussion, [
-        'initialresponse' => (string)($data->sampleinitialresponse ?? ''),
-        'airesponses' => (string)($data->sampleairesponses ?? ''),
-        'peerresponses' => (string)($data->samplepeerresponses ?? ''),
-    ]);
+    try {
+        $preview = aidiscussion_build_response_tester_preview(
+            $aidiscussion,
+            [
+                'initialresponse' => (string)($data->sampleinitialresponse ?? ''),
+                'airesponses' => (string)($data->sampleairesponses ?? ''),
+                'peerresponses' => (string)($data->samplepeerresponses ?? ''),
+            ],
+            (int)$context->id,
+            (int)$USER->id,
+        );
+    } catch (\Throwable $e) {
+        $previewerror = $e->getMessage();
+    }
 }
 
 echo $OUTPUT->header();
@@ -83,31 +93,39 @@ echo html_writer::div($actions, 'mb-3');
 
 $mform->display();
 
+if ($previewerror !== '') {
+    echo $OUTPUT->notification($previewerror, notification::NOTIFY_ERROR);
+}
+
 if ($preview) {
     $summary = new html_table();
     $summary->head = [get_string('gradingcomponent', 'mod_aidiscussion'), get_string('value')];
     $summary->data = [
         [
             get_string('currentgrade', 'mod_aidiscussion'),
-            format_float($preview->metrics->finalscore, 2) . ' / ' . format_float($preview->metrics->grademax, 2),
+            format_float((float)$preview->grade->finalscore, 2) . ' / ' .
+                format_float((float)$preview->metrics->grademax, 2),
         ],
         [
             get_string('initialresponsecomponent', 'mod_aidiscussion'),
-            format_float($preview->metrics->initialpoints, 2) . ' / ' . format_float($preview->metrics->initialmaxpoints, 2),
+            format_float((float)$preview->grade->initialscore, 2) . ' / ' .
+                format_float((float)$preview->metrics->initialmaxpoints, 2),
         ],
     ];
 
     if (!empty($aidiscussion->aienabled)) {
         $summary->data[] = [
             get_string('aiinteractioncomponent', 'mod_aidiscussion'),
-            format_float($preview->metrics->aipoints, 2) . ' / ' . format_float($preview->metrics->aimaxpoints, 2),
+            format_float((float)$preview->grade->aiscore, 2) . ' / ' .
+                format_float((float)$preview->metrics->aimaxpoints, 2),
         ];
     }
 
     if (!empty($aidiscussion->allowpeerreplies)) {
         $summary->data[] = [
             get_string('peerreplycomponent', 'mod_aidiscussion'),
-            format_float($preview->metrics->peerpoints, 2) . ' / ' . format_float($preview->metrics->peermaxpoints, 2),
+            format_float((float)$preview->grade->peerscore, 2) . ' / ' .
+                format_float((float)$preview->metrics->peermaxpoints, 2),
         ];
     }
 

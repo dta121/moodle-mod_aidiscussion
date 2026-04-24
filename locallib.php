@@ -24,6 +24,7 @@
 
 use core_ai\manager as core_ai_manager;
 use mod_aidiscussion\local\ai\provider_client;
+use mod_aidiscussion\local\ai\provider_registry;
 use mod_aidiscussion\task\process_ai_reply;
 use mod_aidiscussion\task\process_grading;
 
@@ -767,6 +768,31 @@ function aidiscussion_get_ai_display_name(stdClass $aidiscussion): string {
 }
 
 /**
+ * Resolve the configured provider for grading.
+ *
+ * @param stdClass $aidiscussion
+ * @return string
+ */
+function aidiscussion_get_grade_provider_component(stdClass $aidiscussion): string {
+    $provider = trim((string)($aidiscussion->gradeprovider ?? ''));
+    if ($provider === '') {
+        $provider = trim((string)($aidiscussion->replyprovider ?? ''));
+    }
+
+    return $provider;
+}
+
+/**
+ * Return whether grading should use an AI provider.
+ *
+ * @param stdClass $aidiscussion
+ * @return bool
+ */
+function aidiscussion_uses_provider_grading(stdClass $aidiscussion): bool {
+    return !empty($aidiscussion->aienabled) && aidiscussion_get_grade_provider_component($aidiscussion) !== '';
+}
+
+/**
  * Return whether the user must accept the Moodle AI policy before posting.
  *
  * @param stdClass $aidiscussion
@@ -1134,7 +1160,13 @@ function aidiscussion_after_post_created(
     stdClass $post,
 ): void {
     if (!empty($post->userid) && $post->authorrole === 'student') {
-        aidiscussion_recalculate_grade_record($aidiscussion, (int)$post->userid);
+        aidiscussion_recalculate_grade_record($aidiscussion, (int)$post->userid, [
+            'forceheuristic' => aidiscussion_uses_provider_grading($aidiscussion),
+        ]);
+
+        if (aidiscussion_uses_provider_grading($aidiscussion)) {
+            aidiscussion_queue_grading_job($aidiscussion, (int)$post->userid);
+        }
     }
 
     if (aidiscussion_should_queue_ai_reply($aidiscussion, $post)) {
@@ -1278,7 +1310,7 @@ function aidiscussion_queue_grading_job(stdClass $aidiscussion, int $userid): in
         'status' => 'queued',
         'attempts' => 0,
         'lastmessage' => '',
-        'runnerprovider' => (string)$aidiscussion->gradeprovider,
+        'runnerprovider' => aidiscussion_get_grade_provider_component($aidiscussion),
         'timecreated' => time(),
         'timestarted' => 0,
         'timecompleted' => 0,
@@ -1958,6 +1990,636 @@ function aidiscussion_build_response_tester_posts(
 }
 
 /**
+ * Resolve the module context id for an activity.
+ *
+ * @param stdClass $aidiscussion
+ * @return int
+ */
+function aidiscussion_resolve_activity_context_id(stdClass $aidiscussion): int {
+    $cm = get_coursemodule_from_instance(
+        'aidiscussion',
+        $aidiscussion->id,
+        $aidiscussion->course,
+        false,
+        MUST_EXIST
+    );
+
+    return (int)\context_module::instance($cm->id)->id;
+}
+
+/**
+ * Collect the learner-authored posts that should be graded.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $posts
+ * @param int $userid
+ * @return array
+ */
+function aidiscussion_get_user_grading_posts(stdClass $aidiscussion, array $posts, int $userid): array {
+    $initialpost = null;
+    $airesponses = [];
+    $peerresponses = [];
+
+    foreach ($posts as $post) {
+        if ($post->authorrole !== 'student' || (int)$post->userid !== $userid) {
+            continue;
+        }
+
+        if (empty($post->parentid)) {
+            if (!$initialpost) {
+                $initialpost = $post;
+            }
+            continue;
+        }
+
+        $parent = $posts[$post->parentid] ?? null;
+        if (!$parent) {
+            continue;
+        }
+
+        if ($parent->posttype === 'ai') {
+            $airesponses[] = [
+                'prompt' => $parent,
+                'response' => $post,
+            ];
+            continue;
+        }
+
+        if (!empty($parent->userid) && (int)$parent->userid !== $userid) {
+            $peerresponses[] = [
+                'prompt' => $parent,
+                'response' => $post,
+            ];
+        }
+    }
+
+    return [
+        'initial' => $initialpost,
+        'ai' => $airesponses,
+        'peer' => $peerresponses,
+    ];
+}
+
+/**
+ * Build plain-text learner evidence for the grading prompt.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $posts
+ * @param int $userid
+ * @return string
+ */
+function aidiscussion_build_grading_evidence_text(stdClass $aidiscussion, array $posts, int $userid): string {
+    $gradedposts = aidiscussion_get_user_grading_posts($aidiscussion, $posts, $userid);
+    $lines = [];
+
+    if (!empty($gradedposts['initial'])) {
+        $lines[] = 'Initial response:';
+        $lines[] = aidiscussion_limit_text(
+            aidiscussion_to_plain_text(
+                (string)$gradedposts['initial']->content,
+                (int)$gradedposts['initial']->contentformat
+            ),
+            2200
+        );
+    } else {
+        $lines[] = 'Initial response:';
+        $lines[] = 'None submitted.';
+    }
+
+    $lines[] = 'Replies to ' . aidiscussion_get_ai_display_name($aidiscussion) . ':';
+    if (empty($gradedposts['ai'])) {
+        $lines[] = 'None submitted.';
+    } else {
+        foreach ($gradedposts['ai'] as $index => $pair) {
+            $lines[] = 'AI prompt ' . ($index + 1) . ':';
+            $lines[] = aidiscussion_limit_text(
+                aidiscussion_to_plain_text(
+                    (string)$pair['prompt']->content,
+                    (int)$pair['prompt']->contentformat
+                ),
+                800
+            );
+            $lines[] = 'Student reply ' . ($index + 1) . ':';
+            $lines[] = aidiscussion_limit_text(
+                aidiscussion_to_plain_text(
+                    (string)$pair['response']->content,
+                    (int)$pair['response']->contentformat
+                ),
+                1600
+            );
+        }
+    }
+
+    $lines[] = 'Peer replies:';
+    if (empty($gradedposts['peer'])) {
+        $lines[] = 'None submitted.';
+    } else {
+        foreach ($gradedposts['peer'] as $index => $pair) {
+            $lines[] = 'Peer post ' . ($index + 1) . ':';
+            $lines[] = aidiscussion_limit_text(
+                aidiscussion_to_plain_text(
+                    (string)$pair['prompt']->content,
+                    (int)$pair['prompt']->contentformat
+                ),
+                800
+            );
+            $lines[] = 'Student reply ' . ($index + 1) . ':';
+            $lines[] = aidiscussion_limit_text(
+                aidiscussion_to_plain_text(
+                    (string)$pair['response']->content,
+                    (int)$pair['response']->contentformat
+                ),
+                1600
+            );
+        }
+    }
+
+    return aidiscussion_limit_text(implode("\n", $lines), 9000);
+}
+
+/**
+ * Build the provider grading prompt.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $posts
+ * @param int $userid
+ * @param stdClass $metrics
+ * @return string
+ */
+function aidiscussion_build_grading_prompt(
+    stdClass $aidiscussion,
+    array $posts,
+    int $userid,
+    stdClass $metrics,
+): string {
+    $teacherprompt = aidiscussion_to_plain_text((string)$aidiscussion->prompt, (int)$aidiscussion->promptformat);
+    $teacherexample = aidiscussion_to_plain_text(
+        (string)($aidiscussion->teacherexample ?? ''),
+        (int)($aidiscussion->teacherexampleformat ?? FORMAT_HTML)
+    );
+    $gradinginstructions = trim((string)($aidiscussion->gradinginstructions ?? ''));
+    $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
+    $evidence = aidiscussion_build_grading_evidence_text($aidiscussion, $posts, $userid);
+    $lines = [
+        'You are grading one learner in a Moodle AI discussion activity.',
+        'Return one valid JSON object only.',
+        'Do not use markdown fences or any text outside the JSON object.',
+        'Score only the learner\'s own writing.',
+        'Use AI replies and peer posts only as context for the learner\'s responses.',
+        'Do not change area keys or criterion shortnames.',
+        'Keep the JSON concise so it fits in a short response budget.',
+        'Limit summary to 20 words.',
+        'Limit overall to 60 words.',
+        'Limit each area feedback to 25 words.',
+        'Limit each criterion feedback to 15 words.',
+        'Return at most 2 integrity flags.',
+        'Teacher prompt: ' . aidiscussion_limit_text($teacherprompt, 2200),
+    ];
+
+    if ($gradinginstructions !== '') {
+        $lines[] = 'Teacher grading instructions: ' .
+            aidiscussion_limit_text(aidiscussion_to_plain_text($gradinginstructions), 2200);
+    }
+
+    if ($teacherexample !== '') {
+        $lines[] = 'Teacher exemplar response: ' . aidiscussion_limit_text($teacherexample, 2200);
+        $lines[] = 'Use the exemplar for expected depth and framing, but do not require the learner to mirror it.';
+    }
+
+    $lines[] = 'Activity settings:';
+    $lines[] = '- Required peer replies: ' . (int)$metrics->requiredpeerreplies;
+    $lines[] = '- Minimum substantive words: ' . (int)$aidiscussion->minsubstantivewords;
+    $lines[] = '- AI display name: ' . aidiscussion_get_ai_display_name($aidiscussion);
+    $lines[] = 'Learner evidence:';
+    $lines[] = $evidence;
+    $lines[] = 'Rubric schema:';
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $rubric = $rubrics[$area];
+        $weightedmax = format_float((float)($metrics->areas[$area]['maxpoints'] ?? 0), 2);
+        $lines[] = 'Area key: ' . $area;
+        $lines[] = 'Area label: ' . $definition['label'];
+        $lines[] = 'Area weight (%): ' . format_float(aidiscussion_get_rubric_area_weight($aidiscussion, $area), 0);
+        $lines[] = 'Weighted max points: ' . $weightedmax;
+        if (trim((string)$rubric->instructions) !== '') {
+            $lines[] = 'Area instructions: ' . aidiscussion_limit_text((string)$rubric->instructions, 1800);
+        }
+        foreach ($rubric->criteria as $criterion) {
+            $lines[] = '- shortname: ' . $criterion->shortname .
+                ' | maxscore: ' . format_float((float)$criterion->maxscore, -1) .
+                ' | description: ' . aidiscussion_limit_text((string)$criterion->description, 1200);
+        }
+    }
+
+    $lines[] = 'Required JSON schema:';
+    $lines[] = '{';
+    $lines[] = '  "summary": "Short overall scoring summary.",';
+    $lines[] = '  "overall": "Short overall feedback.",';
+    $lines[] = '  "areas": {';
+    $lines[] = '    "initial": {';
+    $lines[] = '      "feedback": "Short area-level feedback.",';
+    $lines[] = '      "criteria": [';
+    $lines[] = '        {"shortname": "Criterion shortname", "score": 0, "feedback": "Short criterion feedback."}';
+    $lines[] = '      ]';
+    $lines[] = '    }';
+    $lines[] = '  },';
+    $lines[] = '  "integrityflags": [';
+    $lines[] = '    {"code": "optional_code", "message": "Optional non-blocking concern.", "severity": "low"}';
+    $lines[] = '  ]';
+    $lines[] = '}';
+    $lines[] = 'Use only these severities for integrity flags: low, medium, high.';
+    $lines[] = 'If an area has no learner evidence yet, score its criteria as 0 and explain briefly why.';
+
+    return aidiscussion_limit_text(implode("\n\n", array_filter($lines)), 18000);
+}
+
+/**
+ * Extract the first valid JSON object from model output.
+ *
+ * @param string $text
+ * @return array
+ */
+function aidiscussion_extract_json_payload(string $text): array {
+    $candidate = trim($text);
+    $fence = preg_quote(str_repeat(chr(96), 3), '/');
+
+    if (preg_match('/' . $fence . '(?:json)?\s*(\{.*\})\s*' . $fence . '/is', $candidate, $matches)) {
+        $candidate = trim((string)$matches[1]);
+    }
+
+    $decoded = json_decode($candidate, true);
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+
+    $start = strpos($candidate, '{');
+    $end = strrpos($candidate, '}');
+    if ($start === false || $end === false || $end <= $start) {
+        throw new \UnexpectedValueException('The grading provider did not return a JSON object.');
+    }
+
+    $candidate = substr($candidate, $start, ($end - $start) + 1);
+    $decoded = json_decode($candidate, true);
+    if (!is_array($decoded)) {
+        throw new \UnexpectedValueException('The grading provider returned invalid JSON.');
+    }
+
+    return $decoded;
+}
+
+/**
+ * Normalise a rubric key for case-insensitive matching.
+ *
+ * @param string $value
+ * @return string
+ */
+function aidiscussion_normalise_grading_key(string $value): string {
+    return core_text::strtolower(trim($value));
+}
+
+/**
+ * Parse and validate a provider grading response.
+ *
+ * @param string $text
+ * @return array
+ */
+function aidiscussion_parse_provider_grading_response(string $text): array {
+    $decoded = aidiscussion_extract_json_payload($text);
+
+    if (isset($decoded['result']) && is_array($decoded['result'])) {
+        $decoded = $decoded['result'];
+    }
+
+    if (empty($decoded['areas']) || !is_array($decoded['areas'])) {
+        throw new \UnexpectedValueException('The grading provider response is missing the areas object.');
+    }
+
+    return $decoded;
+}
+
+/**
+ * Merge heuristic and provider integrity flags.
+ *
+ * @param array $heuristicflags
+ * @param mixed $providerflags
+ * @return array
+ */
+function aidiscussion_normalise_provider_flags(array $heuristicflags, $providerflags): array {
+    $providerflags = is_array($providerflags) ? $providerflags : [];
+    $flags = [];
+    $seen = [];
+
+    foreach (array_merge($heuristicflags, $providerflags) as $flag) {
+        if (!is_array($flag)) {
+            continue;
+        }
+
+        $message = trim((string)($flag['message'] ?? ''));
+        if ($message === '') {
+            continue;
+        }
+
+        $code = trim((string)($flag['code'] ?? ''));
+        if ($code === '') {
+            $code = 'flag_' . (count($flags) + 1);
+        }
+
+        $severity = trim((string)($flag['severity'] ?? 'low'));
+        if (!in_array($severity, ['low', 'medium', 'high'], true)) {
+            $severity = 'low';
+        }
+
+        $key = aidiscussion_normalise_grading_key($code . '|' . $message);
+        if (isset($seen[$key])) {
+            continue;
+        }
+
+        $seen[$key] = true;
+        $flags[] = [
+            'code' => $code,
+            'message' => aidiscussion_limit_text(aidiscussion_to_plain_text($message), 400),
+            'severity' => $severity,
+        ];
+    }
+
+    return $flags;
+}
+
+/**
+ * Build grading payloads from a provider scoring response.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $metrics
+ * @param array $gradingdata
+ * @return array
+ */
+function aidiscussion_build_provider_grade_payload(
+    stdClass $aidiscussion,
+    stdClass $metrics,
+    array $gradingdata,
+): array {
+    $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
+    $areas = [];
+    $areaweights = [
+        'initial' => 0.0,
+        'ai' => 0.0,
+        'peer' => 0.0,
+    ];
+    $feedbackareas = [];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $rubric = $rubrics[$area];
+        $rawarea = $gradingdata['areas'][$area] ?? [];
+        $rawarea = is_array($rawarea) ? $rawarea : [];
+        $rawcriteria = $rawarea['criteria'] ?? [];
+        $rawcriteria = is_array($rawcriteria) ? array_values($rawcriteria) : [];
+        $criteriaindex = [];
+
+        foreach ($rawcriteria as $rawcriterion) {
+            if (!is_array($rawcriterion)) {
+                continue;
+            }
+
+            $criterionkey = trim((string)($rawcriterion['shortname'] ?? $rawcriterion['name'] ?? ''));
+            if ($criterionkey === '') {
+                continue;
+            }
+
+            $criteriaindex[aidiscussion_normalise_grading_key($criterionkey)] = $rawcriterion;
+        }
+
+        $criteria = [];
+        $rawscore = 0.0;
+        foreach ($rubric->criteria as $index => $criterion) {
+            $criterionkey = aidiscussion_normalise_grading_key((string)$criterion->shortname);
+            $rawcriterion = $criteriaindex[$criterionkey] ?? ($rawcriteria[$index] ?? []);
+            $rawcriterion = is_array($rawcriterion) ? $rawcriterion : [];
+
+            $score = max(0.0, min((float)$criterion->maxscore, (float)($rawcriterion['score'] ?? 0)));
+            $feedback = trim((string)($rawcriterion['feedback'] ?? $rawcriterion['notes'] ?? ''));
+            if ($feedback === '') {
+                $feedback = aidiscussion_get_area_feedback_text($aidiscussion, $area, $metrics->areas[$area] ?? []);
+            } else {
+                $feedback = aidiscussion_limit_text(aidiscussion_to_plain_text($feedback), 1000);
+            }
+
+            $criteria[] = [
+                'shortname' => (string)$criterion->shortname,
+                'description' => (string)$criterion->description,
+                'score' => round($score, 5),
+                'maxscore' => round((float)$criterion->maxscore, 5),
+                'feedback' => $feedback,
+            ];
+            $rawscore += $score;
+        }
+
+        $rubricmaxscore = max(0.0, (float)$rubric->maxscore);
+        $fraction = $rubricmaxscore > 0.0 ? min(1.0, $rawscore / $rubricmaxscore) : 0.0;
+        $weightedmaxpoints = (float)($metrics->areas[$area]['maxpoints'] ?? 0.0);
+        $weightedpoints = round($weightedmaxpoints * $fraction, 5);
+        $areaweights[$area] = $weightedpoints;
+
+        $areafeedback = trim((string)($rawarea['feedback'] ?? ''));
+        if ($areafeedback === '') {
+            $areafeedback = aidiscussion_get_area_feedback_text($aidiscussion, $area, $metrics->areas[$area] ?? []);
+        } else {
+            $areafeedback = aidiscussion_limit_text(aidiscussion_to_plain_text($areafeedback), 1200);
+        }
+
+        $areas[$area] = [
+            'label' => $definition['label'],
+            'weight' => aidiscussion_get_rubric_area_weight($aidiscussion, $area),
+            'rubricmaxscore' => round($rubricmaxscore, 5),
+            'weightedpoints' => $weightedpoints,
+            'weightedmaxpoints' => round($weightedmaxpoints, 5),
+            'instructions' => (string)$rubric->instructions,
+            'feedback' => $areafeedback,
+            'criteria' => $criteria,
+        ];
+        $feedbackareas[$area] = [
+            'label' => $definition['label'],
+            'feedback' => $areafeedback,
+        ];
+    }
+
+    $finalscore = round(array_sum($areaweights), 5);
+    $summary = trim((string)($gradingdata['summary'] ?? ''));
+    if ($summary === '') {
+        $summary = get_string('aigradingfeedbacksummary', 'mod_aidiscussion', [
+            'score' => format_float($finalscore, 2),
+            'grademax' => format_float((float)$metrics->grademax, 2),
+        ]);
+    } else {
+        $summary = aidiscussion_limit_text(aidiscussion_to_plain_text($summary), 1200);
+    }
+
+    $overall = trim((string)($gradingdata['overall'] ?? ''));
+    if ($overall === '') {
+        $overall = $summary;
+    } else {
+        $overall = aidiscussion_limit_text(aidiscussion_to_plain_text($overall), 2000);
+    }
+
+    $flags = [];
+    if (!empty($aidiscussion->integrityflagsenabled)) {
+        $flags = aidiscussion_normalise_provider_flags(
+            $metrics->flags,
+            $gradingdata['integrityflags'] ?? ($gradingdata['flags'] ?? [])
+        );
+    }
+
+    $rubricprogress = [
+        'source' => 'ai-provider-rubric-v1',
+        'areas' => $areas,
+    ];
+    $feedbackjson = json_encode([
+        'source' => 'ai-provider-rubric-v1',
+        'summary' => $summary,
+        'overall' => $overall,
+        'areas' => $feedbackareas,
+    ]);
+
+    return [
+        'rubricprogress' => $rubricprogress,
+        'feedbackjson' => $feedbackjson,
+        'integrityjson' => json_encode($flags),
+        'flags' => $flags,
+        'areascores' => $areaweights,
+        'finalscore' => $finalscore,
+    ];
+}
+
+/**
+ * Return text generation options for provider-backed grading.
+ *
+ * @param stdClass $aidiscussion
+ * @return array
+ */
+function aidiscussion_get_grading_generation_options(stdClass $aidiscussion): array {
+    $options = [
+        'temperature' => 0.1,
+    ];
+
+    $providercomponent = aidiscussion_get_grade_provider_component($aidiscussion);
+    if (!provider_registry::is_plugin_provider($providercomponent)) {
+        return $options;
+    }
+
+    $config = provider_registry::get_plugin_provider_config($providercomponent);
+    $options['maxtokens'] = max(512, (int)($config['maxtokens'] ?? 0));
+
+    return $options;
+}
+
+/**
+ * Build a provider-backed grade record.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $metrics
+ * @param int $userid
+ * @param int $contextid
+ * @param int $actoruserid
+ * @param array|null $posts
+ * @return stdClass
+ */
+function aidiscussion_build_provider_grade_record(
+    stdClass $aidiscussion,
+    stdClass $metrics,
+    int $userid,
+    int $contextid,
+    int $actoruserid,
+    ?array $posts = null,
+): stdClass {
+    $posts = $posts ?? aidiscussion_load_posts($aidiscussion->id);
+    $providercomponent = aidiscussion_get_grade_provider_component($aidiscussion);
+    $prompt = aidiscussion_build_grading_prompt($aidiscussion, $posts, $userid, $metrics);
+    $result = provider_client::generate_text(
+        $providercomponent,
+        $contextid,
+        $actoruserid,
+        $prompt,
+        aidiscussion_get_grading_generation_options($aidiscussion)
+    );
+
+    if (empty($result->success) || trim((string)$result->generatedcontent) === '') {
+        throw new \UnexpectedValueException('The grading provider returned an empty grading response.');
+    }
+
+    $gradingdata = aidiscussion_parse_provider_grading_response((string)$result->generatedcontent);
+    $payload = aidiscussion_build_provider_grade_payload($aidiscussion, $metrics, $gradingdata);
+
+    return (object) [
+        'aidiscussionid' => (int)$aidiscussion->id,
+        'userid' => $userid,
+        'initialscore' => round((float)($payload['areascores']['initial'] ?? 0.0), 5),
+        'aiscore' => round((float)($payload['areascores']['ai'] ?? 0.0), 5),
+        'peerscore' => round((float)($payload['areascores']['peer'] ?? 0.0), 5),
+        'finalscore' => round((float)$payload['finalscore'], 5),
+        'criterionjson' => json_encode($payload['rubricprogress']),
+        'feedbackjson' => $payload['feedbackjson'],
+        'integrityjson' => $payload['integrityjson'],
+        'providercomponent' => (string)$result->providercomponent,
+        'modelname' => trim((string)$result->modelname),
+        'timegraded' => time(),
+        'timemodified' => time(),
+    ];
+}
+
+/**
+ * Build the best available grade record for a learner.
+ *
+ * @param stdClass $aidiscussion
+ * @param int $userid
+ * @param array $options
+ * @return stdClass
+ */
+function aidiscussion_generate_grade_record(stdClass $aidiscussion, int $userid, array $options = []): stdClass {
+    $posts = $options['posts'] ?? null;
+    $metrics = $options['metrics'] ?? aidiscussion_calculate_user_metrics($aidiscussion, $userid, $posts);
+    $forceheuristic = !empty($options['forceheuristic']);
+    $allowfallback = !array_key_exists('allowfallback', $options) || !empty($options['allowfallback']);
+
+    if ($forceheuristic || !aidiscussion_uses_provider_grading($aidiscussion)) {
+        return aidiscussion_build_grade_record($aidiscussion, $metrics, $userid);
+    }
+
+    $contextid = (int)($options['contextid'] ?? 0);
+    if ($contextid <= 0) {
+        $contextid = aidiscussion_resolve_activity_context_id($aidiscussion);
+    }
+
+    $actoruserid = (int)($options['actoruserid'] ?? $userid);
+    if ($actoruserid <= 0) {
+        $actoruserid = $userid;
+    }
+
+    try {
+        return aidiscussion_build_provider_grade_record(
+            $aidiscussion,
+            $metrics,
+            $userid,
+            $contextid,
+            $actoruserid,
+            $posts
+        );
+    } catch (\Throwable $e) {
+        if (!$allowfallback) {
+            throw $e;
+        }
+
+        return aidiscussion_build_grade_record($aidiscussion, $metrics, $userid);
+    }
+}
+
+/**
  * Build serialised rubric and feedback payloads for a grade record.
  *
  * @param stdClass $aidiscussion
@@ -2041,9 +2703,16 @@ function aidiscussion_build_grade_record(stdClass $aidiscussion, stdClass $metri
  *
  * @param stdClass $aidiscussion
  * @param array $samples
+ * @param int $contextid
+ * @param int $actoruserid
  * @return stdClass
  */
-function aidiscussion_build_response_tester_preview(stdClass $aidiscussion, array $samples): stdClass {
+function aidiscussion_build_response_tester_preview(
+    stdClass $aidiscussion,
+    array $samples,
+    int $contextid,
+    int $actoruserid,
+): stdClass {
     $testuserid = 999999999;
     $initialresponse = trim((string)($samples['initialresponse'] ?? ''));
     $airesamples = isset($samples['airesponses']) && is_array($samples['airesponses']) ?
@@ -2072,7 +2741,13 @@ function aidiscussion_build_response_tester_preview(stdClass $aidiscussion, arra
 
     $posts = aidiscussion_build_response_tester_posts($aidiscussion, $normalisedsamples, $testuserid);
     $metrics = aidiscussion_calculate_user_metrics($aidiscussion, $testuserid, $posts);
-    $grade = aidiscussion_build_grade_record($aidiscussion, $metrics, $testuserid);
+    $grade = aidiscussion_generate_grade_record($aidiscussion, $testuserid, [
+        'posts' => $posts,
+        'metrics' => $metrics,
+        'contextid' => $contextid,
+        'actoruserid' => $actoruserid,
+        'allowfallback' => false,
+    ]);
 
     return (object) [
         'samples' => $normalisedsamples,
@@ -2087,13 +2762,13 @@ function aidiscussion_build_response_tester_preview(stdClass $aidiscussion, arra
  *
  * @param stdClass $aidiscussion
  * @param int $userid
+ * @param array $options
  * @return stdClass
  */
-function aidiscussion_recalculate_grade_record(stdClass $aidiscussion, int $userid): stdClass {
+function aidiscussion_recalculate_grade_record(stdClass $aidiscussion, int $userid, array $options = []): stdClass {
     global $DB;
 
-    $metrics = aidiscussion_calculate_user_metrics($aidiscussion, $userid);
-    $record = aidiscussion_build_grade_record($aidiscussion, $metrics, $userid);
+    $record = aidiscussion_generate_grade_record($aidiscussion, $userid, $options);
     $existing = $DB->get_record('aidiscussion_grades', [
         'aidiscussionid' => $aidiscussion->id,
         'userid' => $userid,
@@ -2126,6 +2801,20 @@ function aidiscussion_get_user_progress(stdClass $aidiscussion, int $userid): st
         'aidiscussionid' => $aidiscussion->id,
         'userid' => $userid,
     ]);
+
+    if ($metrics->grade) {
+        $metrics->initialpoints = (float)$metrics->grade->initialscore;
+        $metrics->aipoints = (float)$metrics->grade->aiscore;
+        $metrics->peerpoints = (float)$metrics->grade->peerscore;
+        $metrics->finalscore = (float)$metrics->grade->finalscore;
+
+        $storedflags = !empty($metrics->grade->integrityjson) ?
+            json_decode((string)$metrics->grade->integrityjson, true) :
+            [];
+        if (is_array($storedflags)) {
+            $metrics->flags = $storedflags;
+        }
+    }
 
     return $metrics;
 }
