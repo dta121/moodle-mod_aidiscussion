@@ -1,5 +1,7 @@
 # mod_aidiscussion
 
+[![Moodle Plugin CI](https://github.com/dta121/moodle-mod_aidiscussion/workflows/Moodle%20Plugin%20CI/badge.svg?branch=main)](https://github.com/dta121/moodle-mod_aidiscussion/actions/workflows/ci.yml)
+
 Scaffold for a new Moodle activity module that combines a structured discussion board with AI replies, AI-assisted grading, peer discussion requirements, and integrity heuristics.
 
 Important naming note:
