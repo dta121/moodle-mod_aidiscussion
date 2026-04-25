@@ -106,6 +106,7 @@ function aidiscussion_delete_instance(int $id): bool {
     $DB->delete_records('aidiscussion_posts', ['aidiscussionid' => $id]);
     $DB->delete_records('aidiscussion_jobs', ['aidiscussionid' => $id]);
     $DB->delete_records('aidiscussion_grades', ['aidiscussionid' => $id]);
+    $DB->delete_records('aidiscussion_benchmarks', ['aidiscussionid' => $id]);
 
     $rubrics = $DB->get_records('aidiscussion_rubrics', ['aidiscussionid' => $id], '', 'id');
     if ($rubrics) {

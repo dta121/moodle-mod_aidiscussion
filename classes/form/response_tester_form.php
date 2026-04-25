@@ -67,6 +67,6 @@ class response_tester_form extends \moodleform {
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);
 
-        $this->add_action_buttons(false, get_string('previewgrade', 'mod_aidiscussion'));
+        $mform->addElement('submit', 'previewsubmit', get_string('previewgrade', 'mod_aidiscussion'));
     }
 }

@@ -187,5 +187,76 @@ function xmldb_aidiscussion_upgrade(int $oldversion): bool {
         upgrade_mod_savepoint(true, 2026042402, 'aidiscussion');
     }
 
+    if ($oldversion < 2026042403) {
+        $table = new xmldb_table('aidiscussion');
+
+        $useexemplarforgrading = new xmldb_field(
+            'useexemplarforgrading',
+            XMLDB_TYPE_INTEGER,
+            '1',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0',
+            'gradinginstructions'
+        );
+        if (!$dbman->field_exists($table, $useexemplarforgrading)) {
+            $dbman->add_field($table, $useexemplarforgrading);
+        }
+
+        $gradingtemperature = new xmldb_field(
+            'gradingtemperature',
+            XMLDB_TYPE_NUMBER,
+            '10,5',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0.00000',
+            'useexemplarforgrading'
+        );
+        if (!$dbman->field_exists($table, $gradingtemperature)) {
+            $dbman->add_field($table, $gradingtemperature);
+        }
+
+        $gradinggranularity = new xmldb_field(
+            'gradinggranularity',
+            XMLDB_TYPE_CHAR,
+            '20',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            'half',
+            'gradingtemperature'
+        );
+        if (!$dbman->field_exists($table, $gradinggranularity)) {
+            $dbman->add_field($table, $gradinggranularity);
+        }
+
+        $benchmarktable = new xmldb_table('aidiscussion_benchmarks');
+        if (!$dbman->table_exists($benchmarktable)) {
+            $benchmarktable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $benchmarktable->add_field('aidiscussionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $benchmarktable->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+            $benchmarktable->add_field('description', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $benchmarktable->add_field('sampleinitialresponse', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $benchmarktable->add_field('sampleairesponses', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $benchmarktable->add_field('samplepeerresponses', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $benchmarktable->add_field('expectedjson', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+            $benchmarktable->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $benchmarktable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $benchmarktable->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+
+            $benchmarktable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $benchmarktable->add_key('aidiscussionid', XMLDB_KEY_FOREIGN, ['aidiscussionid'], 'aidiscussion', ['id']);
+            $benchmarktable->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+
+            $benchmarktable->add_index('aidiscussionid-name', XMLDB_INDEX_NOTUNIQUE, ['aidiscussionid', 'name']);
+
+            $dbman->create_table($benchmarktable);
+        }
+
+        upgrade_mod_savepoint(true, 2026042403, 'aidiscussion');
+    }
+
     return true;
 }

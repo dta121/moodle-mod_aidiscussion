@@ -33,6 +33,11 @@ if ($hassiteconfig) {
     $plugincategoryname = 'modsettingsaidiscussionpluginproviders';
 
     $provideroptions = provider_registry::get_generate_text_options();
+    $gradinggranularityoptions = [
+        'exact' => get_string('gradinggranularityexact', 'mod_aidiscussion'),
+        'half' => get_string('gradinggranularityhalf', 'mod_aidiscussion'),
+        'whole' => get_string('gradinggranularitywhole', 'mod_aidiscussion'),
+    ];
 
     $addpageintro = static function (admin_settingpage $page, string $settingid, string $description): void {
         $page->add(new admin_setting_heading($settingid, '', $description));
@@ -264,6 +269,29 @@ if ($hassiteconfig) {
             '',
             get_string('defaultgradinginstructionsvalue', 'mod_aidiscussion'),
             PARAM_RAW_TRIMMED
+        ));
+
+        $gradingpage->add(new admin_setting_configcheckbox(
+            'aidiscussion/defaultuseexemplarforgrading',
+            get_string('defaultuseexemplarforgrading', 'mod_aidiscussion'),
+            '',
+            0
+        ));
+
+        $gradingpage->add(new admin_setting_configtext(
+            'aidiscussion/defaultgradingtemperature',
+            get_string('defaultgradingtemperature', 'mod_aidiscussion'),
+            get_string('defaultgradingtemperaturedesc', 'mod_aidiscussion'),
+            0.0,
+            PARAM_FLOAT
+        ));
+
+        $gradingpage->add(new admin_setting_configselect(
+            'aidiscussion/defaultgradinggranularity',
+            get_string('defaultgradinggranularity', 'mod_aidiscussion'),
+            '',
+            'half',
+            $gradinggranularityoptions
         ));
     }
     $ADMIN->add($categoryname, $gradingpage);

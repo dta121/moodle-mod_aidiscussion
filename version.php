@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'mod_aidiscussion';
-$plugin->version = 2026042402;
+$plugin->version = 2026042403;
 $plugin->requires = 2024100700; // Moodle 4.5.
 $plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.2.4-alpha';
+$plugin->release = '0.2.5-alpha';

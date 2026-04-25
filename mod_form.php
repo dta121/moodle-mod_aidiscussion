@@ -172,6 +172,25 @@ class mod_aidiscussion_mod_form extends moodleform_mod {
         );
         $mform->disabledIf('gradinginstructions', 'aienabled', 'notchecked');
 
+        $mform->addElement('advcheckbox', 'useexemplarforgrading', get_string('useexemplarforgrading', 'mod_aidiscussion'));
+        $mform->setDefault('useexemplarforgrading', $config->defaultuseexemplarforgrading ?? 0);
+        $mform->disabledIf('useexemplarforgrading', 'aienabled', 'notchecked');
+
+        $mform->addElement('text', 'gradingtemperature', get_string('gradingtemperature', 'mod_aidiscussion'));
+        $mform->setType('gradingtemperature', PARAM_FLOAT);
+        $mform->setDefault('gradingtemperature', $config->defaultgradingtemperature ?? 0.0);
+        $mform->disabledIf('gradingtemperature', 'aienabled', 'notchecked');
+
+        $mform->addElement(
+            'select',
+            'gradinggranularity',
+            get_string('gradinggranularity', 'mod_aidiscussion'),
+            aidiscussion_get_grading_granularity_options()
+        );
+        $mform->setType('gradinggranularity', PARAM_TEXT);
+        $mform->setDefault('gradinggranularity', $config->defaultgradinggranularity ?? 'half');
+        $mform->disabledIf('gradinggranularity', 'aienabled', 'notchecked');
+
         $mform->addElement('advcheckbox', 'showrubricbeforeposting', get_string('showrubricbeforeposting', 'mod_aidiscussion'));
         $mform->setDefault('showrubricbeforeposting', $config->defaultshowrubricbeforeposting ?? 1);
 
@@ -316,6 +335,14 @@ class mod_aidiscussion_mod_form extends moodleform_mod {
 
         if ((int)$data['aireplydelayminutes'] < 0) {
             $errors['aireplydelayminutes'] = get_string('erraireplydelayminutes', 'mod_aidiscussion');
+        }
+
+        if ((float)$data['gradingtemperature'] < 0.0 || (float)$data['gradingtemperature'] > 1.0) {
+            $errors['gradingtemperature'] = get_string('errgradingtemperature', 'mod_aidiscussion');
+        }
+
+        if (!isset(aidiscussion_get_grading_granularity_options()[(string)($data['gradinggranularity'] ?? '')])) {
+            $errors['gradinggranularity'] = get_string('errgradinggranularity', 'mod_aidiscussion');
         }
 
         if (!empty($data['allowpeerreplies']) && (int)$data['requiredpeerreplies'] < 0) {

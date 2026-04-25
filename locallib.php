@@ -96,6 +96,9 @@ function aidiscussion_formdata_to_record(stdClass $data): stdClass {
         'responsetone',
         'responseinstructions',
         'gradinginstructions',
+        'useexemplarforgrading',
+        'gradingtemperature',
+        'gradinggranularity',
     ];
 
     foreach ($fields as $field) {
@@ -121,6 +124,7 @@ function aidiscussion_formdata_to_record(stdClass $data): stdClass {
     $record->showrubricbeforeposting = (int)!empty($record->showrubricbeforeposting);
     $record->pseudonymiseusers = (int)!empty($record->pseudonymiseusers);
     $record->integrityflagsenabled = (int)!empty($record->integrityflagsenabled);
+    $record->useexemplarforgrading = (int)!empty($record->useexemplarforgrading);
     $record->grade = (int)$record->grade;
     $record->minsubstantivewords = (int)$record->minsubstantivewords;
     $record->maxairepliesperstudent = (int)$record->maxairepliesperstudent;
@@ -132,6 +136,8 @@ function aidiscussion_formdata_to_record(stdClass $data): stdClass {
     $record->responsetone = trim((string)$record->responsetone);
     $record->responseinstructions = trim((string)$record->responseinstructions);
     $record->gradinginstructions = trim((string)$record->gradinginstructions);
+    $record->gradingtemperature = max(0.0, min(1.0, (float)($record->gradingtemperature ?? 0.0)));
+    $record->gradinggranularity = aidiscussion_normalise_grading_granularity((string)($record->gradinggranularity ?? 'half'));
     $record->prompt = trim((string)($data->prompt_editor['text'] ?? ''));
     $record->promptformat = (int)($data->prompt_editor['format'] ?? FORMAT_HTML);
     $record->teacherexample = trim((string)($data->teacherexample_editor['text'] ?? ''));
@@ -225,6 +231,31 @@ function aidiscussion_get_rubric_area_weight(stdClass $aidiscussion, string $are
     $definitions = aidiscussion_get_rubric_area_definitions();
     $field = $definitions[$area]['weightfield'] ?? null;
     return $field ? (float)($aidiscussion->{$field} ?? 0) : 0.0;
+}
+
+/**
+ * Return available criterion score granularity options.
+ *
+ * @return array
+ */
+function aidiscussion_get_grading_granularity_options(): array {
+    return [
+        'exact' => get_string('gradinggranularityexact', 'mod_aidiscussion'),
+        'half' => get_string('gradinggranularityhalf', 'mod_aidiscussion'),
+        'whole' => get_string('gradinggranularitywhole', 'mod_aidiscussion'),
+    ];
+}
+
+/**
+ * Normalise a configured criterion score granularity value.
+ *
+ * @param string $value
+ * @return string
+ */
+function aidiscussion_normalise_grading_granularity(string $value): string {
+    $value = trim($value);
+    $options = aidiscussion_get_grading_granularity_options();
+    return isset($options[$value]) ? $value : 'half';
 }
 
 /**
@@ -790,6 +821,74 @@ function aidiscussion_get_grade_provider_component(stdClass $aidiscussion): stri
  */
 function aidiscussion_uses_provider_grading(stdClass $aidiscussion): bool {
     return !empty($aidiscussion->aienabled) && aidiscussion_get_grade_provider_component($aidiscussion) !== '';
+}
+
+/**
+ * Return whether the teacher exemplar should influence grading.
+ *
+ * @param stdClass $aidiscussion
+ * @return bool
+ */
+function aidiscussion_use_teacher_exemplar_for_grading(stdClass $aidiscussion): bool {
+    return !empty($aidiscussion->useexemplarforgrading);
+}
+
+/**
+ * Return the configured grading temperature.
+ *
+ * @param stdClass $aidiscussion
+ * @return float
+ */
+function aidiscussion_get_grading_temperature(stdClass $aidiscussion): float {
+    return max(0.0, min(1.0, (float)($aidiscussion->gradingtemperature ?? 0.0)));
+}
+
+/**
+ * Return the configured criterion score granularity.
+ *
+ * @param stdClass $aidiscussion
+ * @return string
+ */
+function aidiscussion_get_grading_granularity(stdClass $aidiscussion): string {
+    return aidiscussion_normalise_grading_granularity((string)($aidiscussion->gradinggranularity ?? 'half'));
+}
+
+/**
+ * Return the numeric score step enforced by the selected grading granularity.
+ *
+ * @param stdClass $aidiscussion
+ * @return float
+ */
+function aidiscussion_get_grading_score_step(stdClass $aidiscussion): float {
+    return match (aidiscussion_get_grading_granularity($aidiscussion)) {
+        'whole' => 1.0,
+        'half' => 0.5,
+        default => 0.0,
+    };
+}
+
+/**
+ * Return the effective criterion score tolerance for benchmark comparison.
+ *
+ * @param stdClass $aidiscussion
+ * @return float
+ */
+function aidiscussion_get_benchmark_criterion_tolerance(stdClass $aidiscussion): float {
+    return match (aidiscussion_get_grading_granularity($aidiscussion)) {
+        'whole' => 1.0,
+        'half' => 0.5,
+        default => 0.25,
+    };
+}
+
+/**
+ * Return the effective final grade tolerance for benchmark comparison.
+ *
+ * @param stdClass $aidiscussion
+ * @return float
+ */
+function aidiscussion_get_benchmark_final_tolerance(stdClass $aidiscussion): float {
+    return max(1.0, round(((float)($aidiscussion->grade ?? 100)) * 0.05, 2));
 }
 
 /**
@@ -1848,6 +1947,378 @@ function aidiscussion_parse_response_tester_entries(string $text): array {
 }
 
 /**
+ * Format expected benchmark criterion rows for the benchmark editor textarea.
+ *
+ * @param array $criteria
+ * @return string
+ */
+function aidiscussion_format_benchmark_expected_text(array $criteria): string {
+    $lines = [];
+    foreach ($criteria as $criterion) {
+        if (empty($criterion['shortname']) && empty($criterion->shortname)) {
+            continue;
+        }
+
+        $shortname = trim((string)($criterion['shortname'] ?? $criterion->shortname ?? ''));
+        $score = (float)($criterion['score'] ?? $criterion->score ?? 0.0);
+        $feedback = trim((string)($criterion['feedback'] ?? $criterion->feedback ?? ''));
+        $line = $shortname . ' | ' . aidiscussion_format_score_value($score);
+        if ($feedback !== '') {
+            $line .= ' | ' . $feedback;
+        }
+        $lines[] = $line;
+    }
+
+    return implode("\n", $lines);
+}
+
+/**
+ * Decode stored benchmark expectation JSON.
+ *
+ * @param string|null $json
+ * @return array
+ */
+function aidiscussion_decode_benchmark_expected_json(?string $json): array {
+    if (empty($json)) {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Parse expected benchmark criteria text for one rubric area.
+ *
+ * @param stdClass $aidiscussion
+ * @param string $area
+ * @param string $text
+ * @return array
+ */
+function aidiscussion_parse_benchmark_expected_text(stdClass $aidiscussion, string $area, string $text): array {
+    $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
+    $rubric = $rubrics[$area] ?? null;
+    if (!$rubric) {
+        return [
+            'feedback' => '',
+            'criteria' => [],
+        ];
+    }
+
+    $lines = preg_split('/\r\n|\r|\n/', trim($text));
+    $lines = array_values(array_filter(array_map(static function (?string $line): string {
+        return trim((string)$line);
+    }, $lines), static function (string $line): bool {
+        return $line !== '';
+    }));
+
+    if (!$lines) {
+        throw new invalid_parameter_exception(get_string('errbenchmarkcriteriarequired', 'mod_aidiscussion'));
+    }
+
+    $criterionindex = [];
+    foreach ($rubric->criteria as $criterion) {
+        $criterionindex[aidiscussion_normalise_grading_key((string)$criterion->shortname)] = $criterion;
+    }
+
+    $parsed = [];
+    foreach ($lines as $index => $line) {
+        $parts = array_map('trim', explode('|', $line, 3));
+        if (count($parts) < 2) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriterionformat', 'mod_aidiscussion', $index + 1));
+        }
+
+        $shortname = trim((string)$parts[0]);
+        $scorevalue = trim((string)$parts[1]);
+        $feedback = trim((string)($parts[2] ?? ''));
+        $criterionkey = aidiscussion_normalise_grading_key($shortname);
+
+        if ($shortname === '' || !isset($criterionindex[$criterionkey])) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriterionunknown', 'mod_aidiscussion', $index + 1));
+        }
+        if (isset($parsed[$criterionkey])) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriterionduplicate', 'mod_aidiscussion', $shortname));
+        }
+        if (!is_numeric($scorevalue)) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriterionscore', 'mod_aidiscussion', $index + 1));
+        }
+
+        $criterion = $criterionindex[$criterionkey];
+        $score = (float)$scorevalue;
+        if ($score < 0.0 || $score > (float)$criterion->maxscore) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriterionscore', 'mod_aidiscussion', $index + 1));
+        }
+
+        $normalisedscore = aidiscussion_normalise_provider_score($aidiscussion, $score, (float)$criterion->maxscore);
+        if (abs($normalisedscore - $score) > 0.00001 && aidiscussion_get_grading_score_step($aidiscussion) > 0.0) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkcriteriongranularity', 'mod_aidiscussion', $index + 1));
+        }
+
+        $parsed[$criterionkey] = [
+            'shortname' => (string)$criterion->shortname,
+            'score' => $normalisedscore,
+            'feedback' => $feedback,
+        ];
+    }
+
+    $criteria = [];
+    $missing = [];
+    foreach ($rubric->criteria as $criterion) {
+        $criterionkey = aidiscussion_normalise_grading_key((string)$criterion->shortname);
+        if (!isset($parsed[$criterionkey])) {
+            $missing[] = (string)$criterion->shortname;
+            continue;
+        }
+        $criteria[] = $parsed[$criterionkey];
+    }
+
+    if ($missing) {
+        throw new invalid_parameter_exception(
+            get_string('errbenchmarkcriterionmissing', 'mod_aidiscussion', implode(', ', $missing))
+        );
+    }
+
+    return [
+        'feedback' => get_string('benchmarkareafeedbackdefault', 'mod_aidiscussion'),
+        'criteria' => $criteria,
+    ];
+}
+
+/**
+ * Validate stored benchmark expectation JSON against the current rubric.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $expectedjson
+ * @return void
+ */
+function aidiscussion_validate_benchmark_expected_json(stdClass $aidiscussion, array $expectedjson): void {
+    $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        if (empty($expectedjson['areas'][$area]['criteria']) || !is_array($expectedjson['areas'][$area]['criteria'])) {
+            throw new invalid_parameter_exception(get_string('errbenchmarkstalearea', 'mod_aidiscussion', $definition['label']));
+        }
+
+        $expectedcriteria = [];
+        foreach ($expectedjson['areas'][$area]['criteria'] as $criterion) {
+            if (!is_array($criterion)) {
+                continue;
+            }
+            $criterionkey = aidiscussion_normalise_grading_key((string)($criterion['shortname'] ?? ''));
+            if ($criterionkey !== '') {
+                $expectedcriteria[$criterionkey] = true;
+            }
+        }
+
+        $missing = [];
+        foreach ($rubrics[$area]->criteria as $criterion) {
+            $criterionkey = aidiscussion_normalise_grading_key((string)$criterion->shortname);
+            if (!isset($expectedcriteria[$criterionkey])) {
+                $missing[] = (string)$criterion->shortname;
+            }
+        }
+
+        if ($missing) {
+            throw new invalid_parameter_exception(
+                get_string('errbenchmarkcriterionmissing', 'mod_aidiscussion', implode(', ', $missing))
+            );
+        }
+    }
+}
+
+/**
+ * Return benchmark case defaults for the benchmark editor form.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass|null $benchmark
+ * @return array
+ */
+function aidiscussion_get_benchmark_case_form_defaults(stdClass $aidiscussion, ?stdClass $benchmark = null): array {
+    $defaults = [
+        'benchmarkcaseid' => 0,
+        'benchmarkname' => '',
+        'benchmarkdescription' => '',
+        'benchmarkinitialresponse' => '',
+        'benchmarkairesponses' => '',
+        'benchmarkpeerresponses' => '',
+    ];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        $defaults['benchmarkexpected_' . $area] = '';
+    }
+
+    if (!$benchmark) {
+        return $defaults;
+    }
+
+    $expectedjson = aidiscussion_decode_benchmark_expected_json((string)$benchmark->expectedjson);
+    $defaults['benchmarkcaseid'] = (int)$benchmark->id;
+    $defaults['benchmarkname'] = (string)$benchmark->name;
+    $defaults['benchmarkdescription'] = (string)($benchmark->description ?? '');
+    $defaults['benchmarkinitialresponse'] = (string)($benchmark->sampleinitialresponse ?? '');
+    $defaults['benchmarkairesponses'] = (string)($benchmark->sampleairesponses ?? '');
+    $defaults['benchmarkpeerresponses'] = (string)($benchmark->samplepeerresponses ?? '');
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        $defaults['benchmarkexpected_' . $area] = aidiscussion_format_benchmark_expected_text(
+            $expectedjson['areas'][$area]['criteria'] ?? []
+        );
+    }
+
+    return $defaults;
+}
+
+/**
+ * Return preview defaults based on a saved benchmark case.
+ *
+ * @param stdClass $benchmark
+ * @return array
+ */
+function aidiscussion_get_benchmark_preview_defaults(stdClass $benchmark): array {
+    return [
+        'sampleinitialresponse' => (string)($benchmark->sampleinitialresponse ?? ''),
+        'sampleairesponses' => (string)($benchmark->sampleairesponses ?? ''),
+        'samplepeerresponses' => (string)($benchmark->samplepeerresponses ?? ''),
+    ];
+}
+
+/**
+ * Validate benchmark case form data against the current rubric.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $data
+ * @return array
+ */
+function aidiscussion_validate_benchmark_case_form_data(stdClass $aidiscussion, array $data): array {
+    $errors = [];
+
+    if (trim((string)($data['benchmarkname'] ?? '')) === '') {
+        $errors['benchmarkname'] = get_string('errbenchmarknamerequired', 'mod_aidiscussion');
+    }
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $field = 'benchmarkexpected_' . $area;
+        try {
+            aidiscussion_parse_benchmark_expected_text($aidiscussion, $area, (string)($data[$field] ?? ''));
+        } catch (invalid_parameter_exception $e) {
+            $errors[$field] = $e->getMessage();
+        }
+    }
+
+    return $errors;
+}
+
+/**
+ * Load saved benchmark cases for an activity.
+ *
+ * @param int $aidiscussionid
+ * @return array
+ */
+function aidiscussion_get_benchmark_cases(int $aidiscussionid): array {
+    global $DB;
+
+    return $DB->get_records('aidiscussion_benchmarks', ['aidiscussionid' => $aidiscussionid], 'name ASC, id ASC');
+}
+
+/**
+ * Load one saved benchmark case for an activity.
+ *
+ * @param int $benchmarkid
+ * @param int $aidiscussionid
+ * @return stdClass|null
+ */
+function aidiscussion_get_benchmark_case(int $benchmarkid, int $aidiscussionid): ?stdClass {
+    global $DB;
+
+    $record = $DB->get_record('aidiscussion_benchmarks', [
+        'id' => $benchmarkid,
+        'aidiscussionid' => $aidiscussionid,
+    ]);
+
+    return $record ?: null;
+}
+
+/**
+ * Save or update a benchmark case from the tester page.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $data
+ * @param int $userid
+ * @return int
+ */
+function aidiscussion_save_benchmark_case(stdClass $aidiscussion, stdClass $data, int $userid): int {
+    global $DB;
+
+    $expectedjson = [
+        'summary' => trim((string)($data->benchmarkdescription ?? '')) !== '' ?
+            trim((string)$data->benchmarkdescription) :
+            get_string('benchmarksummarydefault', 'mod_aidiscussion'),
+        'overall' => trim((string)($data->benchmarkdescription ?? '')),
+        'areas' => [],
+    ];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $expectedjson['areas'][$area] = aidiscussion_parse_benchmark_expected_text(
+            $aidiscussion,
+            $area,
+            (string)($data->{'benchmarkexpected_' . $area} ?? '')
+        );
+    }
+
+    $record = (object) [
+        'aidiscussionid' => (int)$aidiscussion->id,
+        'name' => trim((string)$data->benchmarkname),
+        'description' => trim((string)($data->benchmarkdescription ?? '')),
+        'sampleinitialresponse' => trim((string)($data->benchmarkinitialresponse ?? '')),
+        'sampleairesponses' => trim((string)($data->benchmarkairesponses ?? '')),
+        'samplepeerresponses' => trim((string)($data->benchmarkpeerresponses ?? '')),
+        'expectedjson' => json_encode($expectedjson),
+        'userid' => $userid,
+        'timemodified' => time(),
+    ];
+
+    $benchmarkid = (int)($data->benchmarkcaseid ?? 0);
+    if ($benchmarkid > 0) {
+        if (!aidiscussion_get_benchmark_case($benchmarkid, (int)$aidiscussion->id)) {
+            throw new invalid_parameter_exception(get_string('benchmarknotfound', 'mod_aidiscussion'));
+        }
+        $record->id = $benchmarkid;
+        $DB->update_record('aidiscussion_benchmarks', $record);
+        return $benchmarkid;
+    }
+
+    $record->timecreated = time();
+    return (int)$DB->insert_record('aidiscussion_benchmarks', $record);
+}
+
+/**
+ * Delete one saved benchmark case.
+ *
+ * @param int $benchmarkid
+ * @param int $aidiscussionid
+ * @return void
+ */
+function aidiscussion_delete_benchmark_case(int $benchmarkid, int $aidiscussionid): void {
+    global $DB;
+
+    $DB->delete_records('aidiscussion_benchmarks', [
+        'id' => $benchmarkid,
+        'aidiscussionid' => $aidiscussionid,
+    ]);
+}
+
+/**
  * Build a lightweight synthetic post for response tester previews.
  *
  * @param stdClass $aidiscussion
@@ -2138,6 +2609,121 @@ function aidiscussion_build_grading_evidence_text(stdClass $aidiscussion, array 
 }
 
 /**
+ * Format a criterion score for prompts and calibration displays.
+ *
+ * @param float $value
+ * @return string
+ */
+function aidiscussion_format_score_value(float $value): string {
+    $formatted = number_format($value, 2, '.', '');
+    $formatted = rtrim(rtrim($formatted, '0'), '.');
+    return $formatted === '-0' ? '0' : $formatted;
+}
+
+/**
+ * Return the allowed criterion scores for the configured granularity.
+ *
+ * @param stdClass $aidiscussion
+ * @param float $maxscore
+ * @return array
+ */
+function aidiscussion_get_allowed_grading_scores(stdClass $aidiscussion, float $maxscore): array {
+    $step = aidiscussion_get_grading_score_step($aidiscussion);
+    if ($step <= 0.0) {
+        return [];
+    }
+
+    $scores = [];
+    for ($score = 0.0; $score <= $maxscore + 0.00001; $score += $step) {
+        $scores[] = round(min($score, $maxscore), 5);
+    }
+
+    if (empty($scores) || abs((float)end($scores) - $maxscore) > 0.00001) {
+        $scores[] = round($maxscore, 5);
+    }
+
+    return array_values(array_unique($scores));
+}
+
+/**
+ * Format a score band for display in prompts.
+ *
+ * @param float $min
+ * @param float $max
+ * @return string
+ */
+function aidiscussion_format_score_band(float $min, float $max): string {
+    if (abs($min - $max) <= 0.00001) {
+        return aidiscussion_format_score_value($max);
+    }
+
+    return aidiscussion_format_score_value($min) . '-' . aidiscussion_format_score_value($max);
+}
+
+/**
+ * Build generic criterion score anchors for provider grading prompts.
+ *
+ * @param stdClass $aidiscussion
+ * @param float $maxscore
+ * @return string
+ */
+function aidiscussion_build_grading_anchor_text(stdClass $aidiscussion, float $maxscore): string {
+    $labels = [
+        'missing, off-topic, or unsupported',
+        'limited, partial, or uneven evidence',
+        'clear evidence with some development',
+        'strong, specific, and complete evidence',
+    ];
+    $scores = aidiscussion_get_allowed_grading_scores($aidiscussion, $maxscore);
+    $bands = [];
+
+    if ($scores) {
+        $chunksize = max(1, (int)ceil(count($scores) / 4));
+        $chunks = array_chunk($scores, $chunksize);
+        foreach ($chunks as $index => $chunk) {
+            $bands[] = aidiscussion_format_score_band((float)reset($chunk), (float)end($chunk)) .
+                ' = ' . $labels[min($index, count($labels) - 1)];
+        }
+        $allowedtext = 'Allowed scores: ' . implode(', ', array_map('aidiscussion_format_score_value', $scores)) . '.';
+    } else {
+        $bounds = [
+            0.0,
+            round($maxscore * 0.25, 2),
+            round($maxscore * 0.5, 2),
+            round($maxscore * 0.75, 2),
+            round($maxscore, 2),
+        ];
+        foreach ($labels as $index => $label) {
+            $bands[] = aidiscussion_format_score_band($bounds[$index], $bounds[$index + 1]) . ' = ' . $label;
+        }
+        $allowedtext = 'Allowed scores: any value from 0 to ' . aidiscussion_format_score_value($maxscore) .
+            ' with up to 2 decimals.';
+    }
+
+    return 'Score bands: ' . implode('; ', $bands) . '. ' . $allowedtext;
+}
+
+/**
+ * Quantise a criterion score to the configured grading granularity.
+ *
+ * @param stdClass $aidiscussion
+ * @param float $score
+ * @param float $maxscore
+ * @return float
+ */
+function aidiscussion_normalise_provider_score(stdClass $aidiscussion, float $score, float $maxscore): float {
+    $score = max(0.0, min($maxscore, $score));
+    $step = aidiscussion_get_grading_score_step($aidiscussion);
+    if ($step > 0.0) {
+        $score = round(round($score / $step) * $step, 5);
+    } else {
+        $score = round($score, 2);
+    }
+
+    return max(0.0, min($maxscore, $score));
+}
+
+/**
  * Build the provider grading prompt.
  *
  * @param stdClass $aidiscussion
@@ -2160,6 +2746,7 @@ function aidiscussion_build_grading_prompt(
     $gradinginstructions = trim((string)($aidiscussion->gradinginstructions ?? ''));
     $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
     $evidence = aidiscussion_build_grading_evidence_text($aidiscussion, $posts, $userid);
+    $granularity = aidiscussion_get_grading_granularity($aidiscussion);
     $lines = [
         'You are grading one learner in a Moodle AI discussion activity.',
         'Return one valid JSON object only.',
@@ -2174,6 +2761,8 @@ function aidiscussion_build_grading_prompt(
         'Limit each criterion feedback to 15 words.',
         'Return at most 2 integrity flags.',
         'Use an empty integrityflags array unless there is a clear, specific concern.',
+        'Criterion score granularity: ' . ($granularity === 'whole' ? 'whole numbers only' :
+            ($granularity === 'half' ? '0.5 increments only' : 'up to 2 decimals')),
         'Teacher prompt: ' . aidiscussion_limit_text($teacherprompt, 2200),
     ];
 
@@ -2182,7 +2771,7 @@ function aidiscussion_build_grading_prompt(
             aidiscussion_limit_text(aidiscussion_to_plain_text($gradinginstructions), 2200);
     }
 
-    if ($teacherexample !== '') {
+    if ($teacherexample !== '' && aidiscussion_use_teacher_exemplar_for_grading($aidiscussion)) {
         $lines[] = 'Teacher exemplar response: ' . aidiscussion_limit_text($teacherexample, 2200);
         $lines[] = 'Use the exemplar for expected depth and framing, but do not require the learner to mirror it.';
     }
@@ -2212,7 +2801,8 @@ function aidiscussion_build_grading_prompt(
         foreach ($rubric->criteria as $criterion) {
             $lines[] = '- shortname: ' . $criterion->shortname .
                 ' | maxscore: ' . format_float((float)$criterion->maxscore, -1) .
-                ' | description: ' . aidiscussion_limit_text((string)$criterion->description, 1200);
+                ' | description: ' . aidiscussion_limit_text((string)$criterion->description, 1200) .
+                ' | ' . aidiscussion_build_grading_anchor_text($aidiscussion, (float)$criterion->maxscore);
         }
     }
 
@@ -2404,7 +2994,11 @@ function aidiscussion_build_provider_grade_payload(
             $rawcriterion = $criteriaindex[$criterionkey] ?? ($rawcriteria[$index] ?? []);
             $rawcriterion = is_array($rawcriterion) ? $rawcriterion : [];
 
-            $score = max(0.0, min((float)$criterion->maxscore, (float)($rawcriterion['score'] ?? 0)));
+            $score = aidiscussion_normalise_provider_score(
+                $aidiscussion,
+                (float)($rawcriterion['score'] ?? 0),
+                (float)$criterion->maxscore
+            );
             $feedback = trim((string)($rawcriterion['feedback'] ?? $rawcriterion['notes'] ?? ''));
             if ($feedback === '') {
                 $feedback = aidiscussion_get_area_feedback_text($aidiscussion, $area, $metrics->areas[$area] ?? []);
@@ -2506,7 +3100,7 @@ function aidiscussion_build_provider_grade_payload(
  */
 function aidiscussion_get_grading_generation_options(stdClass $aidiscussion): array {
     $options = [
-        'temperature' => 0.1,
+        'temperature' => aidiscussion_get_grading_temperature($aidiscussion),
     ];
 
     $providercomponent = aidiscussion_get_grade_provider_component($aidiscussion);
@@ -2777,6 +3371,219 @@ function aidiscussion_build_response_tester_preview(
         'posts' => $posts,
         'metrics' => $metrics,
         'grade' => $grade,
+    ];
+}
+
+/**
+ * Build a teacher-calibrated expected grade record for one benchmark case.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $metrics
+ * @param array $expectedjson
+ * @param int $userid
+ * @return stdClass
+ */
+function aidiscussion_build_benchmark_expected_grade(
+    stdClass $aidiscussion,
+    stdClass $metrics,
+    array $expectedjson,
+    int $userid = 0,
+): stdClass {
+    $payload = aidiscussion_build_provider_grade_payload($aidiscussion, $metrics, $expectedjson);
+
+    return (object) [
+        'aidiscussionid' => (int)($aidiscussion->id ?? 0),
+        'userid' => $userid,
+        'initialscore' => round((float)($payload['areascores']['initial'] ?? 0.0), 5),
+        'aiscore' => round((float)($payload['areascores']['ai'] ?? 0.0), 5),
+        'peerscore' => round((float)($payload['areascores']['peer'] ?? 0.0), 5),
+        'finalscore' => round((float)$payload['finalscore'], 5),
+        'criterionjson' => json_encode($payload['rubricprogress']),
+        'feedbackjson' => $payload['feedbackjson'],
+        'integrityjson' => $payload['integrityjson'],
+        'providercomponent' => 'teacher-benchmark',
+        'modelname' => 'teacher-calibrated',
+        'timegraded' => time(),
+        'timemodified' => time(),
+    ];
+}
+
+/**
+ * Compare an actual benchmark grade to the teacher target.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $expectedgrade
+ * @param stdClass $actualgrade
+ * @return stdClass
+ */
+function aidiscussion_compare_benchmark_grades(
+    stdClass $aidiscussion,
+    stdClass $expectedgrade,
+    stdClass $actualgrade,
+): stdClass {
+    $expectedcriteriondata = json_decode((string)$expectedgrade->criterionjson, true) ?: [];
+    $actualcriteriondata = json_decode((string)$actualgrade->criterionjson, true) ?: [];
+    $areas = [];
+    $criterioncount = 0;
+    $criteriondeltasum = 0.0;
+    $maxcriteriondelta = 0.0;
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $expectedarea = $expectedcriteriondata['areas'][$area] ?? [];
+        $actualarea = $actualcriteriondata['areas'][$area] ?? [];
+        $actualcriteriaindex = [];
+        foreach (($actualarea['criteria'] ?? []) as $criterion) {
+            if (!is_array($criterion)) {
+                continue;
+            }
+
+            $criterionkey = aidiscussion_normalise_grading_key((string)($criterion['shortname'] ?? ''));
+            if ($criterionkey !== '') {
+                $actualcriteriaindex[$criterionkey] = $criterion;
+            }
+        }
+
+        $criteria = [];
+        foreach (($expectedarea['criteria'] ?? []) as $criterion) {
+            if (!is_array($criterion)) {
+                continue;
+            }
+
+            $criterionkey = aidiscussion_normalise_grading_key((string)($criterion['shortname'] ?? ''));
+            $actualcriterion = $actualcriteriaindex[$criterionkey] ?? [];
+            $expectedscore = (float)($criterion['score'] ?? 0.0);
+            $actualscore = (float)($actualcriterion['score'] ?? 0.0);
+            $delta = round($actualscore - $expectedscore, 5);
+            $absdelta = abs($delta);
+
+            $criterioncount++;
+            $criteriondeltasum += $absdelta;
+            $maxcriteriondelta = max($maxcriteriondelta, $absdelta);
+            $criteria[] = [
+                'shortname' => (string)($criterion['shortname'] ?? ''),
+                'expectedscore' => $expectedscore,
+                'actualscore' => $actualscore,
+                'delta' => $delta,
+            ];
+        }
+
+        $expectedweighted = (float)($expectedarea['weightedpoints'] ?? 0.0);
+        $actualweighted = (float)($actualarea['weightedpoints'] ?? 0.0);
+        $areas[$area] = [
+            'label' => $definition['label'],
+            'expectedweightedpoints' => $expectedweighted,
+            'actualweightedpoints' => $actualweighted,
+            'delta' => round($actualweighted - $expectedweighted, 5),
+            'criteria' => $criteria,
+        ];
+    }
+
+    $finaldelta = round((float)$actualgrade->finalscore - (float)$expectedgrade->finalscore, 5);
+    $criteriontolerance = aidiscussion_get_benchmark_criterion_tolerance($aidiscussion);
+    $finaltolerance = aidiscussion_get_benchmark_final_tolerance($aidiscussion);
+
+    return (object) [
+        'areas' => $areas,
+        'expectedfinalscore' => (float)$expectedgrade->finalscore,
+        'actualfinalscore' => (float)$actualgrade->finalscore,
+        'finaldelta' => $finaldelta,
+        'maxcriteriondelta' => $maxcriteriondelta,
+        'averagecriteriondelta' => $criterioncount > 0 ? round($criteriondeltasum / $criterioncount, 5) : 0.0,
+        'criterioncount' => $criterioncount,
+        'criteriontolerance' => $criteriontolerance,
+        'finaltolerance' => $finaltolerance,
+        'passed' => abs($finaldelta) <= $finaltolerance && $maxcriteriondelta <= $criteriontolerance,
+    ];
+}
+
+/**
+ * Run one saved benchmark case through the current grading pipeline.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $benchmark
+ * @param int $contextid
+ * @param int $actoruserid
+ * @return stdClass
+ */
+function aidiscussion_run_benchmark_case(
+    stdClass $aidiscussion,
+    stdClass $benchmark,
+    int $contextid,
+    int $actoruserid,
+): stdClass {
+    $samples = [
+        'initialresponse' => (string)($benchmark->sampleinitialresponse ?? ''),
+        'airesponses' => (string)($benchmark->sampleairesponses ?? ''),
+        'peerresponses' => (string)($benchmark->samplepeerresponses ?? ''),
+    ];
+    $expectedjson = aidiscussion_decode_benchmark_expected_json((string)$benchmark->expectedjson);
+    aidiscussion_validate_benchmark_expected_json($aidiscussion, $expectedjson);
+
+    $preview = aidiscussion_build_response_tester_preview($aidiscussion, $samples, $contextid, $actoruserid);
+    $expectedgrade = aidiscussion_build_benchmark_expected_grade(
+        $aidiscussion,
+        $preview->metrics,
+        $expectedjson,
+        (int)$preview->grade->userid
+    );
+
+    return (object) [
+        'benchmark' => $benchmark,
+        'samples' => $preview->samples,
+        'metrics' => $preview->metrics,
+        'expectedgrade' => $expectedgrade,
+        'actualgrade' => $preview->grade,
+        'comparison' => aidiscussion_compare_benchmark_grades($aidiscussion, $expectedgrade, $preview->grade),
+    ];
+}
+
+/**
+ * Run all saved benchmark cases for the activity.
+ *
+ * @param stdClass $aidiscussion
+ * @param int $contextid
+ * @param int $actoruserid
+ * @return stdClass
+ */
+function aidiscussion_run_all_benchmarks(stdClass $aidiscussion, int $contextid, int $actoruserid): stdClass {
+    $cases = aidiscussion_get_benchmark_cases((int)$aidiscussion->id);
+    $results = [];
+    $passedcount = 0;
+    $finaldeltasum = 0.0;
+    $criteriondeltasum = 0.0;
+    $successfulcount = 0;
+
+    foreach ($cases as $benchmark) {
+        try {
+            $result = aidiscussion_run_benchmark_case($aidiscussion, $benchmark, $contextid, $actoruserid);
+            if (!empty($result->comparison->passed)) {
+                $passedcount++;
+            }
+            $finaldeltasum += abs((float)$result->comparison->finaldelta);
+            $criteriondeltasum += (float)$result->comparison->averagecriteriondelta;
+            $successfulcount++;
+            $results[] = $result;
+        } catch (\Throwable $e) {
+            $results[] = (object) [
+                'benchmark' => $benchmark,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    return (object) [
+        'results' => $results,
+        'casecount' => count($cases),
+        'successfulcount' => $successfulcount,
+        'passedcount' => $passedcount,
+        'averagefinaldelta' => $successfulcount > 0 ? round($finaldeltasum / $successfulcount, 5) : 0.0,
+        'averagecriteriondelta' => $successfulcount > 0 ? round($criteriondeltasum / $successfulcount, 5) : 0.0,
+        'criteriontolerance' => aidiscussion_get_benchmark_criterion_tolerance($aidiscussion),
+        'finaltolerance' => aidiscussion_get_benchmark_final_tolerance($aidiscussion),
     ];
 }
 

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="mod/aidiscussion/db" VERSION="2026042401" COMMENT="XMLDB file for mod_aidiscussion"
+<XMLDB PATH="mod/aidiscussion/db" VERSION="2026042403" COMMENT="XMLDB file for mod_aidiscussion"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -39,6 +39,9 @@
                 <FIELD NAME="responsetone" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT="Professional, warm, and engaging" SEQUENCE="false"/>
                 <FIELD NAME="responseinstructions" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
                 <FIELD NAME="gradinginstructions" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="useexemplarforgrading" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="gradingtemperature" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="gradinggranularity" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="half" SEQUENCE="false"/>
                 <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
                 <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
             </FIELDS>
@@ -168,6 +171,30 @@
             </KEYS>
             <INDEXES>
                 <INDEX NAME="rubricid-sortorder" UNIQUE="false" FIELDS="rubricid, sortorder"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="aidiscussion_benchmarks" COMMENT="Saved response tester benchmark cases for grading calibration">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="sampleinitialresponse" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="sampleairesponses" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="samplepeerresponses" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="expectedjson" TYPE="text" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+                <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-name" UNIQUE="false" FIELDS="aidiscussionid, name"/>
             </INDEXES>
         </TABLE>
     </TABLES>
