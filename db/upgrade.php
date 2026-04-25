@@ -258,5 +258,35 @@ function xmldb_aidiscussion_upgrade(int $oldversion): bool {
         upgrade_mod_savepoint(true, 2026042403, 'aidiscussion');
     }
 
+    if ($oldversion < 2026042501) {
+        $overridetable = new xmldb_table('aidiscussion_grade_overrides');
+        if (!$dbman->table_exists($overridetable)) {
+            $overridetable->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $overridetable->add_field('aidiscussionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $overridetable->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $overridetable->add_field('initialscore', XMLDB_TYPE_NUMBER, '10,5', null, XMLDB_NOTNULL, null, '0.00000');
+            $overridetable->add_field('aiscore', XMLDB_TYPE_NUMBER, '10,5', null, XMLDB_NOTNULL, null, '0.00000');
+            $overridetable->add_field('peerscore', XMLDB_TYPE_NUMBER, '10,5', null, XMLDB_NOTNULL, null, '0.00000');
+            $overridetable->add_field('finalscore', XMLDB_TYPE_NUMBER, '10,5', null, XMLDB_NOTNULL, null, '0.00000');
+            $overridetable->add_field('criterionjson', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $overridetable->add_field('feedbackjson', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $overridetable->add_field('integrityjson', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $overridetable->add_field('overriddenby', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $overridetable->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $overridetable->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+
+            $overridetable->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $overridetable->add_key('aidiscussionid', XMLDB_KEY_FOREIGN, ['aidiscussionid'], 'aidiscussion', ['id']);
+            $overridetable->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+            $overridetable->add_key('overriddenby', XMLDB_KEY_FOREIGN, ['overriddenby'], 'user', ['id']);
+
+            $overridetable->add_index('aidiscussionid-userid', XMLDB_INDEX_UNIQUE, ['aidiscussionid', 'userid']);
+
+            $dbman->create_table($overridetable);
+        }
+
+        upgrade_mod_savepoint(true, 2026042501, 'aidiscussion');
+    }
+
     return true;
 }

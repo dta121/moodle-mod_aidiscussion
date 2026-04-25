@@ -160,7 +160,11 @@ if ($canmanage) {
     echo html_writer::table($summary);
 
     $testerurl = new moodle_url('/mod/aidiscussion/tester.php', ['id' => $cm->id]);
+    $reviewurl = new moodle_url('/mod/aidiscussion/review.php', ['id' => $cm->id]);
     echo html_writer::div(
+        html_writer::link($reviewurl, get_string('opengradereview', 'mod_aidiscussion'), [
+            'class' => 'btn btn-primary me-2',
+        ]) .
         html_writer::link($testerurl, get_string('openresponsetester', 'mod_aidiscussion'), [
             'class' => 'btn btn-secondary',
         ]),

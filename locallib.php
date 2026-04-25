@@ -234,6 +234,85 @@ function aidiscussion_get_rubric_area_weight(stdClass $aidiscussion, string $are
 }
 
 /**
+ * Return the stored score field for a rubric area.
+ *
+ * @param string $area
+ * @return string
+ */
+function aidiscussion_get_rubric_area_score_field(string $area): string {
+    return match ($area) {
+        'initial' => 'initialscore',
+        'ai' => 'aiscore',
+        'peer' => 'peerscore',
+        default => throw new coding_exception('Unknown rubric area: ' . $area),
+    };
+}
+
+/**
+ * Decode stored feedback JSON.
+ *
+ * @param string|null $feedbackjson
+ * @return array
+ */
+function aidiscussion_decode_feedback_json(?string $feedbackjson): array {
+    if (empty($feedbackjson)) {
+        return [];
+    }
+
+    $decoded = json_decode($feedbackjson, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Return area-level feedback text keyed by rubric area.
+ *
+ * @param stdClass|null $grade
+ * @return array
+ */
+function aidiscussion_get_grade_area_feedback_map(?stdClass $grade): array {
+    if (!$grade) {
+        return [];
+    }
+
+    $feedbackdata = aidiscussion_decode_feedback_json((string)($grade->feedbackjson ?? ''));
+    $areas = [];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        $feedback = trim((string)($feedbackdata['areas'][$area]['feedback'] ?? ''));
+        if ($feedback === '' && isset($feedbackdata[$area])) {
+            $feedback = trim((string)$feedbackdata[$area]);
+        }
+        if ($feedback !== '') {
+            $areas[$area] = $feedback;
+        }
+    }
+
+    return $areas;
+}
+
+/**
+ * Return a human-readable label for the grade source.
+ *
+ * @param stdClass|null $grade
+ * @return string
+ */
+function aidiscussion_get_grade_source_label(?stdClass $grade): string {
+    if (!$grade) {
+        return get_string('notapplicable', 'mod_aidiscussion');
+    }
+
+    if (!empty($grade->isoverrideactive) || (string)($grade->providercomponent ?? '') === 'teacher-override') {
+        return get_string('teacheroverride', 'mod_aidiscussion');
+    }
+
+    if ((string)($grade->providercomponent ?? '') === '' || (string)($grade->modelname ?? '') === 'heuristic-v1') {
+        return get_string('heuristicgrade', 'mod_aidiscussion');
+    }
+
+    return provider_registry::get_provider_name((string)$grade->providercomponent);
+}
+
+/**
  * Return available criterion score granularity options.
  *
  * @return array
@@ -3316,6 +3395,448 @@ function aidiscussion_build_grade_record(stdClass $aidiscussion, stdClass $metri
 }
 
 /**
+ * Load one stored teacher override for a learner.
+ *
+ * @param int $aidiscussionid
+ * @param int $userid
+ * @return stdClass|null
+ */
+function aidiscussion_get_grade_override(int $aidiscussionid, int $userid): ?stdClass {
+    global $DB;
+
+    $record = $DB->get_record('aidiscussion_grade_overrides', [
+        'aidiscussionid' => $aidiscussionid,
+        'userid' => $userid,
+    ]);
+
+    return $record ?: null;
+}
+
+/**
+ * Apply a stored teacher override to a grade record.
+ *
+ * @param stdClass|null $grade
+ * @param stdClass|null $override
+ * @return stdClass|null
+ */
+function aidiscussion_apply_grade_override(?stdClass $grade, ?stdClass $override): ?stdClass {
+    if (!$grade && !$override) {
+        return null;
+    }
+
+    if (!$override) {
+        $effective = $grade ? clone $grade : null;
+        if ($effective) {
+            $effective->isoverrideactive = false;
+        }
+        return $effective;
+    }
+
+    $effective = $grade ? clone $grade : (object) [
+        'aidiscussionid' => (int)$override->aidiscussionid,
+        'userid' => (int)$override->userid,
+        'initialscore' => 0.0,
+        'aiscore' => 0.0,
+        'peerscore' => 0.0,
+        'finalscore' => 0.0,
+        'criterionjson' => '',
+        'feedbackjson' => '',
+        'integrityjson' => '',
+        'providercomponent' => '',
+        'modelname' => '',
+        'timegraded' => 0,
+        'timemodified' => 0,
+    ];
+
+    $effective->initialscore = (float)$override->initialscore;
+    $effective->aiscore = (float)$override->aiscore;
+    $effective->peerscore = (float)$override->peerscore;
+    $effective->finalscore = (float)$override->finalscore;
+    $effective->criterionjson = (string)($override->criterionjson ?? '');
+    $effective->feedbackjson = (string)($override->feedbackjson ?? '');
+    $effective->integrityjson = (string)($override->integrityjson ?? '');
+    $effective->providercomponent = 'teacher-override';
+    $effective->modelname = 'teacher-override';
+    $effective->timegraded = (int)($override->timemodified ?: $override->timecreated);
+    $effective->timemodified = (int)($override->timemodified ?: $override->timecreated);
+    $effective->isoverrideactive = true;
+    $effective->overriddenby = (int)$override->overriddenby;
+    $effective->automaticgrade = $grade ? clone $grade : null;
+    $effective->override = $override;
+
+    return $effective;
+}
+
+/**
+ * Return the grade state for a learner, including any active override.
+ *
+ * @param stdClass $aidiscussion
+ * @param int $userid
+ * @param array|null $posts
+ * @return stdClass
+ */
+function aidiscussion_get_user_grade_state(stdClass $aidiscussion, int $userid, ?array $posts = null): stdClass {
+    global $DB;
+
+    $posts = $posts ?? aidiscussion_load_posts($aidiscussion->id);
+    $metrics = aidiscussion_calculate_user_metrics($aidiscussion, $userid, $posts);
+    $autograde = $DB->get_record('aidiscussion_grades', [
+        'aidiscussionid' => $aidiscussion->id,
+        'userid' => $userid,
+    ]) ?: null;
+    $override = aidiscussion_get_grade_override((int)$aidiscussion->id, $userid);
+    $effectivegrade = aidiscussion_apply_grade_override($autograde, $override);
+
+    if (!$effectivegrade && ($metrics->hasinitialpost || $metrics->aireplycount > 0 || $metrics->peerreplycount > 0)) {
+        $effectivegrade = aidiscussion_build_grade_record($aidiscussion, $metrics, $userid);
+        $effectivegrade->isoverrideactive = false;
+    }
+
+    if ($effectivegrade) {
+        $metrics->grade = $effectivegrade;
+        $metrics->initialpoints = (float)$effectivegrade->initialscore;
+        $metrics->aipoints = (float)$effectivegrade->aiscore;
+        $metrics->peerpoints = (float)$effectivegrade->peerscore;
+        $metrics->finalscore = (float)$effectivegrade->finalscore;
+
+        $storedflags = !empty($effectivegrade->integrityjson) ?
+            json_decode((string)$effectivegrade->integrityjson, true) :
+            [];
+        if (is_array($storedflags)) {
+            $metrics->flags = $storedflags;
+        }
+    } else {
+        $metrics->grade = null;
+    }
+
+    return (object) [
+        'metrics' => $metrics,
+        'autograde' => $autograde,
+        'override' => $override,
+        'effectivegrade' => $effectivegrade,
+    ];
+}
+
+/**
+ * Build default values for the grade review override form.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $metrics
+ * @param stdClass|null $grade
+ * @return array
+ */
+function aidiscussion_get_grade_review_form_defaults(
+    stdClass $aidiscussion,
+    stdClass $metrics,
+    ?stdClass $grade,
+): array {
+    $feedbackdata = aidiscussion_decode_feedback_json($grade ? (string)$grade->feedbackjson : '');
+    $areafeedback = aidiscussion_get_grade_area_feedback_map($grade);
+    $defaults = [
+        'overridesummary' => trim((string)($feedbackdata['summary'] ?? '')),
+        'overrideoverall' => trim((string)($feedbackdata['overall'] ?? '')),
+    ];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $scorefield = aidiscussion_get_rubric_area_score_field($area);
+        $defaults['override' . $area . 'score'] = aidiscussion_format_score_value(
+            $grade ? (float)($grade->{$scorefield} ?? 0.0) : (float)($metrics->areas[$area]['points'] ?? 0.0),
+        );
+        $defaults['overridefeedback_' . $area] = $areafeedback[$area] ??
+            aidiscussion_get_area_feedback_text($aidiscussion, $area, $metrics->areas[$area] ?? []);
+    }
+
+    if ($defaults['overridesummary'] === '') {
+        $defaults['overridesummary'] = get_string('gradeoverridesummarydefault', 'mod_aidiscussion', [
+            'score' => format_float((float)($grade->finalscore ?? $metrics->finalscore), 2),
+            'grademax' => format_float((float)$metrics->grademax, 2),
+        ]);
+    }
+
+    if ($defaults['overrideoverall'] === '') {
+        $defaults['overrideoverall'] = $defaults['overridesummary'];
+    }
+
+    return $defaults;
+}
+
+/**
+ * Build a manual override payload from teacher-entered component scores and feedback.
+ *
+ * @param stdClass $aidiscussion
+ * @param stdClass $metrics
+ * @param array $data
+ * @param stdClass|null $currentgrade
+ * @return array
+ */
+function aidiscussion_build_manual_override_payload(
+    stdClass $aidiscussion,
+    stdClass $metrics,
+    array $data,
+    ?stdClass $currentgrade = null,
+): array {
+    $rubrics = aidiscussion_get_effective_rubrics($aidiscussion);
+    $currentfeedback = aidiscussion_get_grade_area_feedback_map($currentgrade);
+    $areas = [];
+    $feedbackareas = [];
+    $areascores = [
+        'initial' => 0.0,
+        'ai' => 0.0,
+        'peer' => 0.0,
+    ];
+
+    foreach (aidiscussion_get_rubric_area_definitions() as $area => $definition) {
+        if (!aidiscussion_is_rubric_area_enabled($aidiscussion, $area)) {
+            continue;
+        }
+
+        $rubric = $rubrics[$area];
+        $weightedmaxpoints = (float)($metrics->areas[$area]['maxpoints'] ?? 0.0);
+        $weightedpoints = max(0.0, min($weightedmaxpoints, (float)($data['override' . $area . 'score'] ?? 0.0)));
+        $fraction = $weightedmaxpoints > 0.0 ? min(1.0, $weightedpoints / $weightedmaxpoints) : 0.0;
+
+        $areafeedback = trim((string)($data['overridefeedback_' . $area] ?? ($currentfeedback[$area] ?? '')));
+        if ($areafeedback === '') {
+            $areafeedback = aidiscussion_get_area_feedback_text($aidiscussion, $area, $metrics->areas[$area] ?? []);
+        } else {
+            $areafeedback = aidiscussion_limit_text(aidiscussion_to_plain_text($areafeedback), 1200);
+        }
+
+        $criteria = [];
+        foreach ($rubric->criteria as $criterion) {
+            $criterionscore = aidiscussion_normalise_provider_score(
+                $aidiscussion,
+                (float)$criterion->maxscore * $fraction,
+                (float)$criterion->maxscore
+            );
+            $criteria[] = [
+                'shortname' => (string)$criterion->shortname,
+                'description' => (string)$criterion->description,
+                'score' => round($criterionscore, 5),
+                'maxscore' => round((float)$criterion->maxscore, 5),
+                'feedback' => $areafeedback,
+            ];
+        }
+
+        $areas[$area] = [
+            'label' => $definition['label'],
+            'weight' => aidiscussion_get_rubric_area_weight($aidiscussion, $area),
+            'rubricmaxscore' => round((float)$rubric->maxscore, 5),
+            'weightedpoints' => round($weightedpoints, 5),
+            'weightedmaxpoints' => round($weightedmaxpoints, 5),
+            'instructions' => (string)$rubric->instructions,
+            'feedback' => $areafeedback,
+            'criteria' => $criteria,
+        ];
+        $feedbackareas[$area] = [
+            'label' => $definition['label'],
+            'feedback' => $areafeedback,
+        ];
+        $areascores[$area] = round($weightedpoints, 5);
+    }
+
+    $finalscore = round(min((float)$metrics->grademax, array_sum($areascores)), 5);
+    $summary = trim((string)($data['overridesummary'] ?? ''));
+    if ($summary === '') {
+        $summary = get_string('gradeoverridesummarydefault', 'mod_aidiscussion', [
+            'score' => format_float($finalscore, 2),
+            'grademax' => format_float((float)$metrics->grademax, 2),
+        ]);
+    } else {
+        $summary = aidiscussion_limit_text(aidiscussion_to_plain_text($summary), 1200);
+    }
+
+    $overall = trim((string)($data['overrideoverall'] ?? ''));
+    if ($overall === '') {
+        $overall = $summary;
+    } else {
+        $overall = aidiscussion_limit_text(aidiscussion_to_plain_text($overall), 2000);
+    }
+
+    $flags = [];
+    if (!empty($aidiscussion->integrityflagsenabled)) {
+        $flags = !empty($currentgrade->integrityjson) ? json_decode((string)$currentgrade->integrityjson, true) : [];
+        if (!is_array($flags)) {
+            $flags = $metrics->flags;
+        }
+    }
+
+    return [
+        'rubricprogress' => [
+            'source' => 'teacher-override-v1',
+            'areas' => $areas,
+        ],
+        'feedbackjson' => json_encode([
+            'source' => 'teacher-override-v1',
+            'summary' => $summary,
+            'overall' => $overall,
+            'areas' => $feedbackareas,
+        ]),
+        'integrityjson' => json_encode($flags),
+        'areascores' => $areascores,
+        'finalscore' => $finalscore,
+    ];
+}
+
+/**
+ * Save or update a teacher grade override.
+ *
+ * @param stdClass $aidiscussion
+ * @param int $userid
+ * @param array $data
+ * @param int $teacherid
+ * @param stdClass|null $metrics
+ * @param stdClass|null $currentgrade
+ * @return stdClass
+ */
+function aidiscussion_save_grade_override(
+    stdClass $aidiscussion,
+    int $userid,
+    array $data,
+    int $teacherid,
+    ?stdClass $metrics = null,
+    ?stdClass $currentgrade = null,
+): stdClass {
+    global $DB;
+
+    $metrics = $metrics ?? aidiscussion_calculate_user_metrics($aidiscussion, $userid);
+    if ($currentgrade === null) {
+        $currentgrade = $DB->get_record('aidiscussion_grades', [
+            'aidiscussionid' => $aidiscussion->id,
+            'userid' => $userid,
+        ]) ?: null;
+    }
+    $payload = aidiscussion_build_manual_override_payload($aidiscussion, $metrics, $data, $currentgrade);
+    $existing = aidiscussion_get_grade_override((int)$aidiscussion->id, $userid);
+
+    $record = (object) [
+        'aidiscussionid' => (int)$aidiscussion->id,
+        'userid' => $userid,
+        'initialscore' => round((float)($payload['areascores']['initial'] ?? 0.0), 5),
+        'aiscore' => round((float)($payload['areascores']['ai'] ?? 0.0), 5),
+        'peerscore' => round((float)($payload['areascores']['peer'] ?? 0.0), 5),
+        'finalscore' => round((float)$payload['finalscore'], 5),
+        'criterionjson' => json_encode($payload['rubricprogress']),
+        'feedbackjson' => $payload['feedbackjson'],
+        'integrityjson' => $payload['integrityjson'],
+        'overriddenby' => $teacherid,
+        'timemodified' => time(),
+    ];
+
+    if ($existing) {
+        $record->id = $existing->id;
+        $DB->update_record('aidiscussion_grade_overrides', $record);
+    } else {
+        $record->timecreated = time();
+        $record->id = $DB->insert_record('aidiscussion_grade_overrides', $record);
+    }
+
+    aidiscussion_update_grades($aidiscussion, $userid);
+
+    return $record;
+}
+
+/**
+ * Clear an active teacher override for a learner.
+ *
+ * @param stdClass $aidiscussion
+ * @param int $userid
+ * @return void
+ */
+function aidiscussion_clear_grade_override(stdClass $aidiscussion, int $userid): void {
+    global $DB;
+
+    $DB->delete_records('aidiscussion_grade_overrides', [
+        'aidiscussionid' => $aidiscussion->id,
+        'userid' => $userid,
+    ]);
+
+    aidiscussion_update_grades($aidiscussion, $userid);
+}
+
+/**
+ * Load participants who have discussion activity or stored grades for review.
+ *
+ * @param stdClass $aidiscussion
+ * @return array
+ */
+function aidiscussion_get_review_participants(stdClass $aidiscussion): array {
+    global $DB;
+
+    $posts = aidiscussion_load_posts($aidiscussion->id);
+    $autogrades = $DB->get_records('aidiscussion_grades', ['aidiscussionid' => $aidiscussion->id]);
+    $overrides = $DB->get_records('aidiscussion_grade_overrides', ['aidiscussionid' => $aidiscussion->id]);
+
+    $gradesbyuser = [];
+    foreach ($autogrades as $grade) {
+        $gradesbyuser[(int)$grade->userid] = $grade;
+    }
+
+    $overridesbyuser = [];
+    foreach ($overrides as $override) {
+        $overridesbyuser[(int)$override->userid] = $override;
+    }
+
+    $userids = [];
+    foreach ($posts as $post) {
+        if ($post->authorrole === 'student' && !empty($post->userid)) {
+            $userids[(int)$post->userid] = true;
+        }
+    }
+    foreach (array_keys($gradesbyuser) as $userid) {
+        $userids[(int)$userid] = true;
+    }
+    foreach (array_keys($overridesbyuser) as $userid) {
+        $userids[(int)$userid] = true;
+    }
+
+    if (!$userids) {
+        return [];
+    }
+
+    $users = $DB->get_records_list(
+        'user',
+        'id',
+        array_keys($userids),
+        '',
+        'id, firstname, lastname, middlename, firstnamephonetic, lastnamephonetic, alternatename, picture, imagealt, email'
+    );
+
+    $participants = [];
+    foreach ($users as $user) {
+        $metrics = aidiscussion_calculate_user_metrics($aidiscussion, (int)$user->id, $posts);
+        $autograde = $gradesbyuser[(int)$user->id] ?? null;
+        $override = $overridesbyuser[(int)$user->id] ?? null;
+        $effectivegrade = aidiscussion_apply_grade_override($autograde, $override);
+
+        if (!$effectivegrade && ($metrics->hasinitialpost || $metrics->aireplycount > 0 || $metrics->peerreplycount > 0)) {
+            $effectivegrade = aidiscussion_build_grade_record($aidiscussion, $metrics, (int)$user->id);
+            $effectivegrade->isoverrideactive = false;
+        }
+
+        $participants[] = (object) [
+            'user' => $user,
+            'metrics' => $metrics,
+            'autograde' => $autograde,
+            'override' => $override,
+            'effectivegrade' => $effectivegrade,
+            'sourcelabel' => aidiscussion_get_grade_source_label($effectivegrade),
+            'lastupdated' => (int)(($effectivegrade->timemodified ?? 0) ?: ($effectivegrade->timegraded ?? 0)),
+        ];
+    }
+
+    usort($participants, static function (stdClass $left, stdClass $right): int {
+        return strnatcasecmp(fullname($left->user), fullname($right->user));
+    });
+
+    return $participants;
+}
+
+/**
  * Build a response tester preview without creating real posts or grades.
  *
  * @param stdClass $aidiscussion
@@ -3624,29 +4145,94 @@ function aidiscussion_recalculate_grade_record(stdClass $aidiscussion, int $user
  * @return stdClass
  */
 function aidiscussion_get_user_progress(stdClass $aidiscussion, int $userid): stdClass {
-    global $DB;
+    $state = aidiscussion_get_user_grade_state($aidiscussion, $userid);
+    return $state->metrics;
+}
 
-    $metrics = aidiscussion_calculate_user_metrics($aidiscussion, $userid);
-    $metrics->grade = $DB->get_record('aidiscussion_grades', [
-        'aidiscussionid' => $aidiscussion->id,
-        'userid' => $userid,
-    ]);
+/**
+ * Render the learner submissions that inform grading review.
+ *
+ * @param stdClass $aidiscussion
+ * @param array $posts
+ * @param int $userid
+ * @param context_module $context
+ * @return string
+ */
+function aidiscussion_render_review_submission_context(
+    stdClass $aidiscussion,
+    array $posts,
+    int $userid,
+    context_module $context,
+): string {
+    global $OUTPUT;
 
-    if ($metrics->grade) {
-        $metrics->initialpoints = (float)$metrics->grade->initialscore;
-        $metrics->aipoints = (float)$metrics->grade->aiscore;
-        $metrics->peerpoints = (float)$metrics->grade->peerscore;
-        $metrics->finalscore = (float)$metrics->grade->finalscore;
+    $gradedposts = aidiscussion_get_user_grading_posts($aidiscussion, $posts, $userid);
+    $sections = [];
 
-        $storedflags = !empty($metrics->grade->integrityjson) ?
-            json_decode((string)$metrics->grade->integrityjson, true) :
-            [];
-        if (is_array($storedflags)) {
-            $metrics->flags = $storedflags;
-        }
+    if (!empty($gradedposts['initial'])) {
+        $sections[] = html_writer::div(
+            html_writer::tag('h5', get_string('initialresponsecomponent', 'mod_aidiscussion'), ['class' => 'mb-2']) .
+            html_writer::div(
+                format_text(
+                    $gradedposts['initial']->content,
+                    $gradedposts['initial']->contentformat,
+                    ['context' => $context, 'para' => true]
+                ),
+                'mod-aidiscussion-review-body'
+            ),
+            'border rounded p-3 mb-3'
+        );
     }
 
-    return $metrics;
+    foreach ($gradedposts['ai'] as $index => $pair) {
+        $title = get_string('aiinteractioncomponent', 'mod_aidiscussion') . ' ' . ($index + 1);
+        $sections[] = html_writer::div(
+            html_writer::tag('h5', s($title), ['class' => 'mb-2']) .
+            html_writer::tag('p', s($pair['prompt']->authorname), ['class' => 'fw-bold mb-1']) .
+            html_writer::div(
+                format_text($pair['prompt']->content, $pair['prompt']->contentformat, ['context' => $context, 'para' => true]),
+                'mb-3'
+            ) .
+            html_writer::tag('p', s($pair['response']->authorname), ['class' => 'fw-bold mb-1']) .
+            html_writer::div(
+                format_text(
+                    $pair['response']->content,
+                    $pair['response']->contentformat,
+                    ['context' => $context, 'para' => true]
+                ),
+                ''
+            ),
+            'border rounded p-3 mb-3'
+        );
+    }
+
+    foreach ($gradedposts['peer'] as $index => $pair) {
+        $title = get_string('peerreplycomponent', 'mod_aidiscussion') . ' ' . ($index + 1);
+        $sections[] = html_writer::div(
+            html_writer::tag('h5', s($title), ['class' => 'mb-2']) .
+            html_writer::tag('p', s($pair['prompt']->authorname), ['class' => 'fw-bold mb-1']) .
+            html_writer::div(
+                format_text($pair['prompt']->content, $pair['prompt']->contentformat, ['context' => $context, 'para' => true]),
+                'mb-3'
+            ) .
+            html_writer::tag('p', s($pair['response']->authorname), ['class' => 'fw-bold mb-1']) .
+            html_writer::div(
+                format_text(
+                    $pair['response']->content,
+                    $pair['response']->contentformat,
+                    ['context' => $context, 'para' => true]
+                ),
+                ''
+            ),
+            'border rounded p-3 mb-3'
+        );
+    }
+
+    if (!$sections) {
+        return $OUTPUT->notification(get_string('nolearneractivity', 'mod_aidiscussion'), 'info');
+    }
+
+    return html_writer::div(implode('', $sections), 'mod-aidiscussion-review-context');
 }
 
 /**

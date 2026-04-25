@@ -133,6 +133,33 @@
             </INDEXES>
         </TABLE>
 
+        <TABLE NAME="aidiscussion_grade_overrides" COMMENT="Teacher-managed override grades per learner">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="aidiscussionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+                <FIELD NAME="initialscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="aiscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="peerscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="finalscore" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="true" DEFAULT="0.00000" SEQUENCE="false"/>
+                <FIELD NAME="criterionjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="feedbackjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="integrityjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+                <FIELD NAME="overriddenby" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+                <KEY NAME="aidiscussionid" TYPE="foreign" FIELDS="aidiscussionid" REFTABLE="aidiscussion" REFFIELDS="id"/>
+                <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+                <KEY NAME="overriddenby" TYPE="foreign" FIELDS="overriddenby" REFTABLE="user" REFFIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="aidiscussionid-userid" UNIQUE="true" FIELDS="aidiscussionid, userid"/>
+            </INDEXES>
+        </TABLE>
+
         <TABLE NAME="aidiscussion_rubrics" COMMENT="Rubric containers for initial, ai, and peer grading areas">
             <FIELDS>
                 <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

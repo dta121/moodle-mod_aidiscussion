@@ -106,6 +106,7 @@ function aidiscussion_delete_instance(int $id): bool {
     $DB->delete_records('aidiscussion_posts', ['aidiscussionid' => $id]);
     $DB->delete_records('aidiscussion_jobs', ['aidiscussionid' => $id]);
     $DB->delete_records('aidiscussion_grades', ['aidiscussionid' => $id]);
+    $DB->delete_records('aidiscussion_grade_overrides', ['aidiscussionid' => $id]);
     $DB->delete_records('aidiscussion_benchmarks', ['aidiscussionid' => $id]);
 
     $rubrics = $DB->get_records('aidiscussion_rubrics', ['aidiscussionid' => $id], '', 'id');
@@ -173,19 +174,36 @@ function aidiscussion_update_grades(stdClass $aidiscussion, int $userid = 0): vo
         return;
     }
 
+    $gradeconditions = ['aidiscussionid' => $aidiscussion->id];
     if ($userid) {
-        $records = $DB->get_records('aidiscussion_grades', [
-            'aidiscussionid' => $aidiscussion->id,
-            'userid' => $userid,
-        ]);
-    } else {
-        $records = $DB->get_records('aidiscussion_grades', [
-            'aidiscussionid' => $aidiscussion->id,
-        ]);
+        $gradeconditions['userid'] = $userid;
     }
 
-    $grades = [];
+    $records = $DB->get_records('aidiscussion_grades', $gradeconditions);
+    $overrides = $DB->get_records('aidiscussion_grade_overrides', $gradeconditions);
+
+    $gradesbyuser = [];
     foreach ($records as $record) {
+        $gradesbyuser[(int)$record->userid] = $record;
+    }
+
+    $overridesbyuser = [];
+    foreach ($overrides as $override) {
+        $overridesbyuser[(int)$override->userid] = $override;
+    }
+
+    $userids = array_unique(array_merge(array_keys($gradesbyuser), array_keys($overridesbyuser)));
+
+    $grades = [];
+    foreach ($userids as $gradeuserid) {
+        $record = aidiscussion_apply_grade_override(
+            $gradesbyuser[(int)$gradeuserid] ?? null,
+            $overridesbyuser[(int)$gradeuserid] ?? null
+        );
+        if (!$record) {
+            continue;
+        }
+
         $grade = new stdClass();
         $grade->userid = (int)$record->userid;
         $grade->rawgrade = (float)$record->finalscore;
